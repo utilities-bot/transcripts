@@ -114,27 +114,29 @@ describe("the file", () => {
   });
 
   /**
-   * Read as text, a file is one line for the browser and then three blocks, in
-   * the order somebody skimming it wants: where, who, and the transcript.
+   * Read as text, a file is three blocks and nothing else, in the order
+   * somebody skimming it wants: where, who, and the transcript. No doctype or
+   * head is written out — the loader clears the text and sets up the page.
    */
   it("is three plain blocks: the server, the people, and the transcript", () => {
     const html = buildHtml(collected().payload, { stats: { saved: 3, skipped: 1 } });
     const lines = html.split("\n");
 
-    assert.match(lines[0], /^<!DOCTYPE html><meta charset="utf-8">/);
-    assert.deepEqual(lines.slice(1, 8), [
+    assert.deepEqual(lines.slice(0, 7), [
       "<Server-Info>",
       "    Server: Utilities Support (1374147741403320350)",
       "    Channel: ticket-0007 (1489260905819541635)",
       "    Messages: 12",
       "    Images Saved: 3",
       "    Images Skipped: 1 (due to the file size limit, or no longer on Discord.)",
-      lines[7],
+      lines[6],
     ]);
-    assert.match(lines[7], /^    Exported: \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
-    assert.deepEqual(lines.slice(8, 13), ["", "<User-Info>", "    6 - mira.k (497562304498368513)", "    3 - Utilities (1359000000000000001)", "    3 - jonas (612345678901234567)"]);
-    assert.deepEqual(lines.slice(13, 15), ["", "<Base-Transcript>"]);
-    assert.equal(lines.length, 17, "nothing else: the last block is one line, then the file ends");
+    assert.match(lines[6], /^    Exported: \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
+    assert.deepEqual(lines.slice(7, 12), ["", "<User-Info>", "    6 - mira.k (497562304498368513)", "    3 - Utilities (1359000000000000001)", "    3 - jonas (612345678901234567)"]);
+    assert.deepEqual(lines.slice(12, 14), ["", "<Base-Transcript>"]);
+    assert.equal(lines.length, 16, "nothing else: the last block is one line, then the file ends");
+    assert.equal(html.startsWith("<Server-Info>"), true);
+    assert.match(lines[14], /d\.body\.textContent="";/, "the loader clears the plain text before the transcript is drawn");
   });
 
   /** Those blocks are page content now, so a server or a person named in markup must not become any. */

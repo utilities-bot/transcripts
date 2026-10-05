@@ -3,15 +3,16 @@
 // Nothing in it is fetched to draw the transcript. It opens the same way from
 // a Discord download, from a website, or from a backup years later.
 //
-// It is laid out to be read as text too. After one line that tells a browser
-// what it is looking at, there are three blocks:
+// It is laid out to be read as text too, and is nothing but three blocks:
 //
 //   <Server-Info>      where and when, in plain words
 //   <User-Info>        who spoke, and how much
 //   <Base-Transcript>  the transcript's data and the viewer, both gzipped and
 //                      written as base64, and a loader a few lines long
 //
-// The loader clears the plain text away, unpacks the viewer and runs it.
+// There is no doctype, head or body written out: the file starts at
+// <Server-Info>. The loader takes the data out of the page, clears the plain
+// text away, and unpacks the viewer in its place.
 
 import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
@@ -27,30 +28,27 @@ const VIEWER = gzipSync(Buffer.from(JSON.stringify({ css: VIEWER_CSS, js: VIEWER
 }).toString("base64");
 
 /**
- * The one line before the blocks.
+ * Clears the plain text off the page, unpacks the viewer and starts it.
  *
- * It keeps the browser in standards mode and reading UTF-8, and paints the
- * page in the viewer's background with the text the same colour — so the plain
- * text below is never seen flashing by while a large file loads.
- */
-const FIRST_LINE =
-  '<!DOCTYPE html><meta charset="utf-8"><body style="margin:0;background:#1a1a1e;color:#1a1a1e">';
-
-/**
- * Clears the page, unpacks the viewer and starts it.
+ * The file has no doctype or head of its own, so the browser opens it in its
+ * compatibility mode and supplies an empty head and a body. The loader fills
+ * in what a head would have said — how wide a phone should draw the page, and
+ * that it is not to be indexed — and paints the page before anything is drawn.
+ * (A doctype cannot be added afterwards: a browser decides the mode from the
+ * first bytes. The viewer's stylesheet is written to lay out the same in both.)
  *
  * Everything it runs came out of this same file. A browser too old to unpack
  * it says so in words rather than showing an empty page.
  */
 const LOADER = [
   "(async()=>{",
-  "const d=document,g=i=>d.getElementById(i).textContent;let el;",
+  "const d=document,g=i=>d.getElementById(i).textContent;",
   "try{",
   'const e=JSON.parse(g("transcript-data")),z=g("transcript-viewer");',
-  'd.body.textContent="";',
+  'd.body.textContent="";d.body.style.cssText="margin:0;background:#1a1a1e";d.documentElement.lang="en";',
   'const m=(n,c)=>d.head.appendChild(Object.assign(d.createElement("meta"),{name:n,content:c}));',
   'm("viewport","width=device-width, initial-scale=1");m("robots","noindex, nofollow");m("referrer","no-referrer");m("color-scheme","dark");',
-  'el=d.body.appendChild(d.createElement("div"));',
+  'const el=d.body.appendChild(d.createElement("div"));',
   "const b=Uint8Array.from(atob(z),c=>c.charCodeAt(0));",
   'const v=JSON.parse(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip"))).text());',
   'd.head.appendChild(Object.assign(d.createElement("style"),{textContent:v.css}));',
@@ -114,7 +112,6 @@ export function buildHtml(payload, options = {}) {
   const envelope = pack(payload, { signingKey: options.signingKey });
 
   return [
-    FIRST_LINE,
     summary(payload, options.stats),
     "",
     "<Base-Transcript>",

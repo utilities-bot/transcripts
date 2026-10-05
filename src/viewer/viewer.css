@@ -14,6 +14,12 @@ html,body{margin:0;background:#1a1a1e}
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-wrap:anywhere
 }
 .tr *,.tr *::before,.tr *::after{box-sizing:border-box}
+/* A transcript file has no doctype, so a browser opens it in its compatibility mode. These are
+   the things that mode would decide differently; said outright, both modes lay out the same. */
+.tr table{font:inherit;color:inherit}
+.tr img{vertical-align:middle}
+.tr .emoji{vertical-align:bottom}
+.tr p,.tr li,.tr summary,.tr button,.tr input{line-height:inherit}
 .tr a{color:var(--link);text-decoration:none}
 .tr a:hover{text-decoration:underline}
 .tr b,.tr strong{font-weight:700}
