@@ -129,9 +129,11 @@ describe("the file", () => {
       lines[3],
     ]);
     assert.match(lines[3], /^    Exported  \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
-    assert.deepEqual(lines.slice(4, 14), [
-      "    Messages  12",
-      "    Images    3 saved, 1 left as links",
+    assert.deepEqual(lines.slice(4, 16), [
+      "    Messages  12 saved",
+      "    Images    3 saved, 1 skipped",
+      "    Files     0 saved",
+      "    Skipped   over the file size limit, or no longer on Discord",
       "",
       "<Participants>",
       "    6  mira.k     497562304498368513",
@@ -139,17 +141,18 @@ describe("the file", () => {
       "    3  jonas      612345678901234567",
       "",
       "<Conversation>",
-      lines[13],
+      lines[15],
     ]);
-    assert.equal(lines.length, 15, "nothing else: the last block is one line, then the file ends");
+    assert.equal(lines.length, 17, "nothing else: the last block is one line, then the file ends");
     assert.equal(html.startsWith("<Transcript>"), true);
-    assert.match(lines[13], /d\.body\.textContent="";/, "the loader clears the plain text before the transcript is drawn");
+    assert.match(lines[15], /d\.body\.textContent="";/, "the loader clears the plain text before the transcript is drawn");
   });
 
-  it("says nothing about skipped images when none were", () => {
+  it("says nothing about skipping when nothing was skipped", () => {
     const html = buildHtml(collected().payload, { stats: { saved: 10, skipped: 0 } });
 
-    assert.match(html, /^    Images    10 saved$/m);
+    assert.match(html, /^    Images    10 saved\n    Files     0 saved\n\n<Participants>$/m);
+    assert.equal(html.split("<Conversation>")[0].includes("kipped"), false);
   });
 
   /** Those blocks are page content now, so a server or a person named in markup must not become any. */
@@ -520,7 +523,7 @@ describe("the viewer", () => {
       "<span>Messages</span><b>12 from 3 people</b>",
       "<span>Lasted</span><b>1d",
       "<span>Images</span><b>10 saved</b>",
-      "<span>Files</span><b>1 saved, 1 not saved</b>",
+      "<span>Files</span><b>1 saved, 1 skipped</b>",
       "<span>Times shown in</span>",
     ]) {
       assert.ok(html.includes(piece), `missing ${piece}`);
@@ -600,7 +603,7 @@ describe("createTranscript", () => {
     assert.equal(result.messageCount, 12);
     assert.equal(result.images.skipped, 0);
     assert.deepEqual(result.files, { saved: 1, skipped: 1, bytes: 41 });
-    assert.match(result.html, /^    Images    10 saved\n    Files     1 saved, 1 left as links$/m);
+    assert.match(result.html, /^    Images    10 saved\n    Files     1 saved, 1 skipped\n    Skipped   over the file size limit, or no longer on Discord$/m);
     assert.deepEqual(readTranscript(result.html).payload.stats, { images: { saved: 10, skipped: 0 }, files: { saved: 1, skipped: 1 } });
     assert.equal(result.participants[0].username, "mira.k");
     assert.equal(verifyTranscript(result.html), "intact");
@@ -637,7 +640,7 @@ describe("createTranscript", () => {
     assert.equal(result.messageCount + result.truncated, long.length);
     assert.equal(payload.messages.at(-1).id, long.at(-1).id, "the newest message is the one that is kept");
     assert.equal(payload.truncated, result.truncated);
-    assert.match(result.html, /^    Messages  \d+ \(\d+ older left out to fit the size limit\)$/m);
+    assert.match(result.html, /^    Messages  \d+ saved, \d+ skipped$/m);
     assert.match(viewer.render(payload, {}), /left out to keep this file within its size limit/);
   });
 

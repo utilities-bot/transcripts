@@ -507,8 +507,8 @@ function summaryHtml(c, people){
     cell("First message", first ? esc(stamp(first)) : "") +
     cell("Last message", last ? esc(stamp(last)) : "") +
     cell("Lasted", first && last && last > first ? lasted(last - first) : "") +
-    cell("Images", st.images ? kept(st.images, "not saved") : Object.keys(c.assets).length + " saved") +
-    cell("Files", files ? kept(files, "not saved") : "") +
+    cell("Images", st.images ? kept(st.images, "skipped") : Object.keys(c.assets).length + " saved") +
+    cell("Files", files ? kept(files, "skipped") : "") +
     cell("Exported", esc(stamp(when)), '<em>' + esc(utcText(when)) + "</em>") +
     cell("Times shown in", esc(z.name || z.utc), z.name ? "<em>" + esc(z.utc) + "</em>" : "");
 }

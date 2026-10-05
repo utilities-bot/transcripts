@@ -95,17 +95,20 @@ function summary(payload, stats) {
   const exported = new Date(payload.exportedAt).toISOString().replace("T", " ").slice(0, 16);
   const images = stats ?? payload.stats?.images ?? { saved: 0, skipped: 0 };
   const files = payload.stats?.files ?? { saved: 0, skipped: 0 };
-  const kept = (one, left) => `${String(one.saved)} saved` + (one.skipped > 0 ? `, ${String(one.skipped)} ${left}` : "");
+  // "10 saved", or "10 saved, 2 skipped" — the second half only when there is something to say.
+  const kept = (one) => `${String(one.saved)} saved` + (one.skipped > 0 ? `, ${String(one.skipped)} skipped` : "");
+  const anySkipped = images.skipped + files.skipped + (payload.truncated ?? 0) > 0;
 
   return [
     "<Transcript>",
     row("Server", `${safe(payload.guild.name)} (${safe(payload.guild.id)})`),
     row("Channel", `#${safe(payload.channel.name)} (${safe(payload.channel.id)})`),
     row("Exported", `${exported} UTC`),
-    row("Messages", String(payload.messages.length) + (payload.truncated ? ` (${String(payload.truncated)} older left out to fit the size limit)` : "")),
-    row("Images", kept(images, "left as links")),
-    // Said only when somebody uploaded one: most tickets have no files at all.
-    ...(files.saved + files.skipped > 0 ? [row("Files", kept(files, "left as links"))] : []),
+    row("Messages", `${String(payload.messages.length)} saved` + (payload.truncated ? `, ${String(payload.truncated)} skipped` : "")),
+    row("Images", kept(images)),
+    row("Files", kept(files)),
+    // One line of why, and only when something was skipped.
+    ...(anySkipped ? [row("Skipped", "over the file size limit, or no longer on Discord")] : []),
     "",
     "<Participants>",
     ...spoke.map((one) => `    ${one.count.padStart(countWidth)}  ${one.name.padEnd(nameWidth)}  ${one.id}`),
