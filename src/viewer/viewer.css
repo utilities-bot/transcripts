@@ -62,17 +62,17 @@ html,body{margin:0;background:#323339}
 
 /* ---- the top of the page: the server's icon, the channel, one grey line, and a Details button */
 .tr-top{margin:20px 16px 0;max-width:820px}
-.tr-more>summary{display:flex;align-items:center;gap:12px;list-style:none;user-select:none;cursor:pointer}
+.tr-more>summary{display:flex;align-items:center;gap:12px;width:fit-content;max-width:100%;list-style:none;user-select:none;cursor:pointer}
 .tr-more>summary::-webkit-details-marker{display:none}
 .tr-top__icon{flex:none;display:block;width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--bg-2)}
 .tr-top__icon--hash{display:flex;align-items:center;justify-content:center;background:#44454c;color:#fff}
 .tr-top__icon--hash svg{width:26px;height:26px}
-.tr-top__title{flex:1;min-width:0;display:flex;flex-direction:column}
+.tr-top__title{flex:0 1 auto;min-width:0;display:flex;flex-direction:column}
 .tr-top__title>b{color:var(--head);font-size:20px;line-height:26px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tr-top__line{display:flex;flex-wrap:wrap;color:var(--muted);font-size:14px;line-height:20px}
 .tr-top__line span+span::before{content:"\00b7";margin:0 7px;color:var(--faint)}
 /* a button, not a link: grey like Discord's own secondary buttons */
-.tr-more__btn{flex:none;display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 10px 0 14px;border-radius:8px;background:#44454c;box-shadow:inset 0 0 0 1px var(--edge);color:var(--head);font-size:14px;font-weight:500}
+.tr-more__btn{flex:none;display:inline-flex;align-items:center;gap:4px;height:30px;margin-left:8px;padding:0 8px 0 12px;border-radius:8px;background:#44454c;box-shadow:inset 0 0 0 1px var(--edge);color:var(--head);font-size:14px;font-weight:500}
 .tr-more__btn svg{width:16px;height:16px;color:var(--muted)}
 .tr-more>summary:hover .tr-more__btn{background:#4e4f57}
 .tr-more[open] .tr-more__btn svg{transform:rotate(180deg)}
@@ -88,7 +88,7 @@ html,body{margin:0;background:#323339}
 /* the particulars: who took part, then a two-column list with a hairline between rows */
 .tr-list{margin:12px 0 0;padding:0}
 .tr-list>div{display:flex;gap:16px;padding:7px 0;border-top:1px solid var(--edge);font-size:14px}
-.tr-list dt{flex:none;width:150px;color:var(--muted)}
+.tr-list dt{flex:none;width:170px;color:var(--muted)}
 .tr-list dd{flex:1;min-width:0;margin:0;color:var(--text);overflow-wrap:anywhere}
 .tr-dim{color:var(--muted)}
 .tr-id{margin:0 0 0 6px;padding:1px 6px;border:0;border-radius:4px;background:var(--bg-3);color:var(--muted);font:500 12px/1.4 Consolas,Menlo,Monaco,monospace;cursor:pointer;vertical-align:1px}

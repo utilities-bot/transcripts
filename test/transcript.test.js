@@ -508,31 +508,32 @@ describe("the viewer", () => {
   });
 
   /**
-   * Everything about the export in one place, and the one time that does not
-   * depend on where the reader is: every other time on the page is local.
+   * The details list is a layout that was written out, row for row. It is
+   * these eight, in this order, and nothing that was not asked for.
    */
-  it("opens with a summary: where it is from, how long it ran, what was saved, and the time zone", async () => {
+  it("lists the details exactly as laid out", async () => {
     const { payload, wanted } = collected();
     const got = await embedAssets(payload, wanted, { fetch: fakeFetch() });
     payload.stats = { images: { saved: got.saved, skipped: got.skipped }, files: got.files };
     const html = viewer.render(payload, {});
+    const list = /<dl class="tr-list">(.*?)<\/dl>/s.exec(html)[1];
+    const rows = [...list.matchAll(/<dt>(.*?)<\/dt><dd>(.*?)<\/dd>/gs)].map(([, label, value]) => [label, value.replace(/<[^>]+>/g, "")]);
 
-    for (const piece of [
-      '<b>#ticket-0007</b>',
-      '<span class="tr-top__line"><span>Utilities Support</span><span>12 messages</span><span>1d',
-      'data-copy="1374147741403320350"',
-      'data-copy="1489260905819541635"',
-      "<dt>Messages</dt><dd>12 saved, from 3 people</dd>",
-      "<dt>Images</dt><dd>10 saved</dd>",
-      "<dt>Files</dt><dd>1 saved, 1 skipped</dd>",
-      "<dt>Duration</dt><dd>1d",
-      "<dt>Transcript created</dt>",
-      "<dt>Time zone</dt><dd>Times are shown in yours: ",
-    ]) {
-      assert.ok(html.includes(piece), `missing ${piece}`);
-    }
-    assert.match(html, /\(\d{4}-\d\d-\d\d \d\d:\d\d UTC\)/);
-    assert.equal(html.includes("Exported"), false, "the word nobody understood is gone");
+    assert.deepEqual(rows.map(([label]) => label), ["Server", "Channel", "Messages", "Images", "Files", "Duration", "Created", "Transcript Generated"]);
+    assert.deepEqual(rows.slice(0, 5), [
+      ["Server", "Utilities Support 1374147741403320350"],
+      ["Channel", "#ticket-0007 1489260905819541635"],
+      ["Messages", "12"],
+      ["Images", "10"],
+      ["Files", "1"],
+    ]);
+    assert.match(rows[5][1], /^1d/);
+    // A date in the reader's own time, then the same moment in UTC.
+    assert.match(rows[6][1], /2026.* \(2026-10-05 14:02 UTC\)$/);
+    assert.match(rows[7][1], / \(\d{4}-\d\d-\d\d \d\d:\d\d UTC\)$/);
+    assert.match(html, /<b>#ticket-0007<\/b><span class="tr-top__line"><span>Utilities Support<\/span><span>12 messages<\/span><span>1d/);
+    assert.match(list, /data-copy="1374147741403320350"/);
+    assert.equal(/Exported|Time zone|First message|Last message|skipped/.test(list), false);
   });
 
   it("shows a saved picture from the file, not from Discord", async () => {

@@ -145,14 +145,6 @@ function lasted(ms){
   if (m) return m + "m";
   return s + "s";
 }
-/* The reader's own time zone, by name and as an offset: "Pacific/Auckland", "UTC+13:00". Every time
-   on the page is drawn in it, so it is said once where somebody comparing notes will look. */
-function zone(){
-  var name = "";
-  try { name = new Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) {}
-  var off = -new Date().getTimezoneOffset(), a = Math.abs(off);
-  return { name: name, utc: "UTC" + (off < 0 ? "-" : "+") + Math.floor(a / 60) + ":" + (a % 60 < 10 ? "0" : "") + (a % 60) };
-}
 function utcText(ms){ return new Date(ms).toISOString().replace("T", " ").slice(0, 16) + " UTC"; }
 function fmtTime(sec, style, now){
   var d = new Date(sec * 1000);
@@ -514,22 +506,22 @@ function peopleHtml(c, order, counts){
   return '<ul class="tr-people">' + order.slice(0, PEOPLE_SHOWN).map(chip).join("") + "</ul>" +
     (rest.length ? '<details class="tr-rest"><summary>' + ICON.chevron + "<span>" + rest.length + " more</span></summary>" + '<ul class="tr-people">' + rest.map(chip).join("") + "</ul></details>" : "");
 }
-function detailsHtml(c, people){
+/* The details list, exactly these rows in this order and nothing else. "Created" is when the
+   ticket's first message was sent; both dates are the reader's own time with UTC beside it. */
+function detailsHtml(c){
   var p = c.p, g = p.guild || {}, ch = p.channel || {}, msgs = p.messages || [], st = p.stats || {};
-  var first = msgs.length ? msgs[0].ts : null, last = msgs.length ? msgs[msgs.length - 1].ts : null, made = p.exportedAt || Date.now(), z = zone();
-  var kept = function(one){ return one ? one.saved + " saved" + (one.skipped ? ", " + one.skipped + " skipped" : "") : ""; };
+  var first = msgs.length ? msgs[0].ts : null, last = msgs.length ? msgs[msgs.length - 1].ts : null, made = p.exportedAt || Date.now();
   var id = function(v){ return v ? ' <button class="tr-id" type="button" data-copy="' + esc(v) + '" title="Copy ID">' + esc(v) + "</button>" : ""; };
-  var row = function(k, v){ return v ? "<div><dt>" + k + "</dt><dd>" + v + "</dd></div>" : ""; };
+  var when = function(ms){ return esc(fullDate(new Date(ms))) + ' <span class="tr-dim">(' + esc(utcText(ms)) + ")</span>"; };
+  var row = function(k, v){ return v === "" ? "" : "<div><dt>" + k + "</dt><dd>" + v + "</dd></div>"; };
   return row("Server", esc(g.name || "Unknown") + id(g.id)) +
     row("Channel", "#" + esc(ch.name || "unknown") + id(ch.id)) +
-    row("Messages", msgs.length + " saved" + (p.truncated ? ", " + p.truncated + " older skipped" : "") + ", from " + (people === 1 ? "1 person" : people + " people")) +
-    row("Images", st.images ? kept(st.images) : Object.keys(c.assets).length + " saved") +
-    row("Files", st.files ? kept(st.files) : "") +
-    row("First message", first ? esc(fullDate(new Date(first))) : "") +
-    row("Last message", last ? esc(fullDate(new Date(last))) : "") +
+    row("Messages", String(msgs.length)) +
+    row("Images", String(st.images ? st.images.saved : Object.keys(c.assets).length)) +
+    row("Files", String(st.files ? st.files.saved : 0)) +
     row("Duration", first && last && last > first ? lasted(last - first) : "") +
-    row("Transcript created", esc(fullDate(new Date(made))) + ' <span class="tr-dim">(' + esc(utcText(made)) + ")</span>") +
-    row("Time zone", "Times are shown in yours: " + esc(z.name ? z.name + ", " + z.utc : z.utc));
+    row("Created", first ? when(first) : "") +
+    row("Transcript Generated", when(made));
 }
 function render(payload, opt){
   var c = context(payload), o = opt || {};
@@ -554,7 +546,7 @@ function render(payload, opt){
           (icon ? '<img class="tr-top__icon" src="' + esc(icon) + '" alt="" data-e="gone">' : '<span class="tr-top__icon tr-top__icon--hash">' + ICON.hash + "</span>") +
           '<span class="tr-top__title"><b>#' + esc(ch.name || "channel") + '</b><span class="tr-top__line">' + topLine(c) + "</span></span>" +
           '<span class="tr-more__btn">Details' + ICON.chevron + "</span></summary>" +
-          '<div class="tr-more__body">' + peopleHtml(c, order, counts) + '<dl class="tr-list">' + detailsHtml(c, order.length) + "</dl></div></details>" +
+          '<div class="tr-more__body">' + peopleHtml(c, order, counts) + '<dl class="tr-list">' + detailsHtml(c) + "</dl></div></details>" +
         (payload.truncated ? '<p class="tr-top__note">The ' + plural(payload.truncated, "oldest message") + " " + (payload.truncated === 1 ? "was" : "were") + " skipped to keep this file within its size limit.</p>" : "") +
       "</section>" +
       '<div class="tr-log">' + (msgs.length ? messagesHtml(c) : '<p class="tr-empty">There are no messages in this transcript.</p>') + "</div>" +
