@@ -7,7 +7,7 @@
 //
 //   <Transcript>    where and when, as a small table
 //   <Participants>  who spoke, and how much, busiest first
-//   <Payload>       the transcript's data and the viewer, both gzipped and
+//   <Conversation>  the transcript's data and the viewer, both gzipped and
 //                   written as base64, and a loader a few lines long
 //
 // There is no doctype, head or body written out: the file starts at
@@ -119,7 +119,7 @@ export function buildHtml(payload, options = {}) {
   return [
     summary(payload, options.stats),
     "",
-    "<Payload>",
+    "<Conversation>",
     // Base64 and a handful of fixed keys: nothing in either block can close its element.
     `    <script id="transcript-data" type="application/json">${JSON.stringify(envelope)}</script>` +
       `<script id="transcript-viewer" type="application/octet-stream">${VIEWER}</script>` +

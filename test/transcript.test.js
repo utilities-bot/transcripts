@@ -138,7 +138,7 @@ describe("the file", () => {
       "    3  Utilities  1359000000000000001",
       "    3  jonas      612345678901234567",
       "",
-      "<Payload>",
+      "<Conversation>",
       lines[13],
     ]);
     assert.equal(lines.length, 15, "nothing else: the last block is one line, then the file ends");
@@ -157,7 +157,7 @@ describe("the file", () => {
     const { payload } = collected();
     payload.guild.name = '<script>alert(1)</script>';
     payload.users[SAMPLE_IDS.mira].name = "</Transcript><img src=x onerror=alert(2)>";
-    const head = buildHtml(payload).split("<Payload>")[0];
+    const head = buildHtml(payload).split("<Conversation>")[0];
 
     assert.equal(/<script|<img/i.test(head), false);
     assert.match(head, /Server    &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
