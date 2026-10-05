@@ -1,0 +1,30 @@
+{
+  "name": "utilities-transcripts",
+  "version": "0.1.0",
+  "description": "Self-contained, signed HTML transcripts of Discord channels, drawn the way Discord draws them.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./viewer.js": "./src/viewer/viewer.js",
+    "./viewer.css": "./src/viewer/viewer.css"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "sample": "node scripts/sample.js",
+    "keygen": "node scripts/keygen.js"
+  }
+}

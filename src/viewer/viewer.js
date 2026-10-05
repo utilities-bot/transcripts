@@ -1,0 +1,598 @@
+/* The transcript viewer.
+
+   One plain script with no dependencies. It is written inline into every
+   transcript file, and a website can load the same file to show a transcript
+   in a page of its own, so the two can never look different.
+
+   It takes the transcript's data and draws it the way Discord draws a channel:
+   grouped messages, replies, forwarded messages, attachments, embeds, buttons,
+   menus, containers, reactions, stickers and polls, with Discord's markdown.
+
+   Everything that came from a message goes into the page through esc(), and
+   every address is checked before it becomes a link or a picture. Nothing in a
+   transcript can run script here.
+
+   render() builds a string and touches no DOM, which is what lets it be tested
+   outside a browser. mount() puts that string on the page and wires the few
+   things that respond to a click. */
+(function (root) {
+"use strict";
+
+var TWEMOJI = "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg/";
+var EMOJI_RE = /(?:\p{RI}\p{RI}|[#*0-9]️?⃣|\p{Extended_Pictographic}(?:️|\p{EMod})?(?:‍\p{Extended_Pictographic}(?:️|\p{EMod})?)*)/u;
+var ONLY_EMOJI = /^\s*(?:(?:<a?:\w+:\d+>|\p{Extended_Pictographic}|\p{RI}|️|‍|\p{EMod})\s*){1,30}$/u;
+
+/* ---------- small things */
+function esc(s){ return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
+function isHttp(v){ return typeof v === "string" && /^https?:\/\/[^\s]+$/i.test(v); }
+function isPicture(v){ return typeof v === "string" && /^data:image\/(png|jpeg|gif|webp|avif);base64,[A-Za-z0-9+\/=]+$/.test(v); }
+/* Kept in step with src/urls.js: the collector asks for an emoji by this address and this looks it up again. */
+function emojiUrl(id, animated){ return "https://cdn.discordapp.com/emojis/" + id + "." + (animated ? "gif" : "webp") + "?size=48"; }
+function bytesText(n){
+  if (!n) return "";
+  if (n < 1024) return n + " bytes";
+  if (n < 1048576) return (n / 1024).toFixed(n < 10240 ? 2 : 1) + " KB";
+  return (n / 1048576).toFixed(2) + " MB";
+}
+function plural(n, word){ return n + " " + word + (n === 1 ? "" : "s"); }
+
+var ICON = {
+  hash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10.99 3.16A1 1 0 1 0 9 2.84L8.15 8H4a1 1 0 0 0 0 2h3.82l-.67 4H3a1 1 0 1 0 0 2h3.82l-.8 4.84a1 1 0 0 0 1.97.32L8.85 16h4.97l-.8 4.84a1 1 0 0 0 1.97.32l.86-5.16H20a1 1 0 1 0 0-2h-3.82l.67-4H21a1 1 0 1 0 0-2h-3.82l.8-4.84a1 1 0 1 0-1.97-.32L15.15 8h-4.97l.8-4.84ZM14.15 14l.67-4H9.85l-.67 4h4.97Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
+  file: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 2a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V8l-6-6H6Zm7 1.5L18.5 9H14a1 1 0 0 1-1-1V3.5ZM8 13h8v1.5H8V13Zm0 3.5h8V18H8v-1.5Z"/></svg>',
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.14v13.72a1 1 0 0 0 1.52.86l11-6.86a1 1 0 0 0 0-1.7l-11-6.87A1 1 0 0 0 8 5.14Z"/></svg>',
+  link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15 2a1 1 0 0 0 0 2h3.59l-7.3 7.3a1 1 0 0 0 1.42 1.4L20 5.42V9a1 1 0 1 0 2 0V3a1 1 0 0 0-1-1h-6Z"/><path fill="currentColor" d="M5 5a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2v-6a1 1 0 1 0-2 0v6H5V7h6a1 1 0 1 0 0-2H5Z"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5.3 9.3a1 1 0 0 1 1.4 0l5.3 5.29 5.3-5.3a1 1 0 1 1 1.4 1.42l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.42Z"/></svg>',
+  join: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M13.3 5.3a1 1 0 0 1 1.4 0l6 6a1 1 0 0 1 0 1.4l-6 6a1 1 0 0 1-1.4-1.4l4.29-4.3H4a1 1 0 1 1 0-2h13.59l-4.3-4.3a1 1 0 0 1 0-1.4Z"/></svg>',
+  leave: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10.7 5.3a1 1 0 0 0-1.4 0l-6 6a1 1 0 0 0 0 1.4l6 6a1 1 0 0 0 1.4-1.4L6.42 13H20a1 1 0 1 0 0-2H6.41l4.3-4.3a1 1 0 0 0 0-1.4Z"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.38 11.38a3 3 0 0 0 4.24 0l.03-.03a.5.5 0 0 0 0-.7L13.35.35a.5.5 0 0 0-.7 0l-.03.03a3 3 0 0 0 0 4.24L13 5l-2.92 2.92-3.65-.34a2 2 0 0 0-1.6.58l-.62.63a1 1 0 0 0 0 1.42l9.58 9.58a1 1 0 0 0 1.42 0l.63-.63a2 2 0 0 0 .58-1.6l-.34-3.64L19 11l.38.38ZM9.07 17.07a.5.5 0 0 1-.08.77l-5.15 3.43a.5.5 0 0 1-.63-.06l-.42-.42a.5.5 0 0 1-.06-.63L6.16 15a.5.5 0 0 1 .77-.08l2.14 2.14Z"/></svg>',
+  boost: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1.6 5.2 8.4v7.2l6.8 6.8 6.8-6.8V8.4L12 1.6Zm3.8 12.76L12 18.16l-3.8-3.8V9.64L12 5.84l3.8 3.8v4.72Z"/><path fill="currentColor" d="m9.6 10.2 2.4-2.4 2.4 2.4v3.6L12 16.2l-2.4-2.4v-3.6Z"/></svg>',
+  thread: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2.81a1 1 0 0 1 0-1.41l.36-.36a1 1 0 0 1 1.41 0l9.2 9.2a1 1 0 0 1 0 1.4l-.7.7a1 1 0 0 1-1.3.13l-9.54-6.72a1 1 0 0 1-.08-1.58l1-1L12 2.8ZM12 21.2a1 1 0 0 1 0 1.41l-.35.35a1 1 0 0 1-1.41 0l-9.2-9.19a1 1 0 0 1 0-1.41l.7-.7a1 1 0 0 1 1.3-.12l9.54 6.72a1 1 0 0 1 .07 1.58l-1 1 .35.36ZM15.66 16.8a1 1 0 0 1-1.38.28l-8.49-5.66A1 1 0 1 1 6.9 9.76l8.49 5.65a1 1 0 0 1 .27 1.39ZM17.1 14.25a1 1 0 1 0 1.11-1.66L9.73 6.93a1 1 0 0 0-1.11 1.66l8.49 5.66Z"/></svg>',
+  forward: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.7 7.3a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4L18.58 9H13a7 7 0 0 0-7 7v4a1 1 0 1 1-2 0v-4a9 9 0 0 1 9-9h5.59l-3.3-3.3a1 1 0 0 1 1.42-1.4l5 5Z"/></svg>',
+  image: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5Zm13.35 8.13 3.5 4.67c.37.5.02 1.2-.6 1.2H5.81a.75.75 0 0 1-.59-1.22l1.86-2.32a1.5 1.5 0 0 1 2.34 0l.5.64 2.23-2.97a2 2 0 0 1 3.2 0ZM10.2 5.98c.23-.91-.88-1.55-1.55-.9a.93.93 0 0 1-1.3 0c-.67-.65-1.78-.01-1.55.9a.93.93 0 0 1-.65 1.12c-.9.26-.9 1.54 0 1.8.48.14.77.63.65 1.12-.23.91.88 1.55 1.55.9a.93.93 0 0 1 1.3 0c.67.65 1.78.01 1.55-.9a.93.93 0 0 1 .65-1.12c.9-.26.9-1.54 0-1.8a.93.93 0 0 1-.65-1.12Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1.5 3.5 4.6v6.5c0 5.2 3.5 9.9 8.5 11.4 5-1.5 8.5-6.2 8.5-11.4V4.6L12 1.5Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 4.8-4.8 1.4 1.4-6.2 6.2Z"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2Zm1 15h-2v-2h2v2Zm0-4h-2V9h2v4Z"/></svg>',
+  slash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 3a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5Zm9.6 3.3a1 1 0 0 1 .6 1.3l-4.5 10.5a1 1 0 1 1-1.84-.8L13.3 6.9a1 1 0 0 1 1.3-.6Z"/></svg>'
+};
+
+/* ---------- pictures: the copy saved in the file first, the live address otherwise */
+function src(c, url){
+  if (typeof url !== "string" || !url) return null;
+  var saved = c.assets[url];
+  if (isPicture(saved)) return saved;
+  return isHttp(url) ? url : null;
+}
+function saved(c, url){ return isPicture(c.assets[url]); }
+
+/* ---------- emoji */
+function twemojiUrl(e){
+  var cps = [], zwj = e.indexOf("‍") >= 0;
+  for (var ch of e) { var cp = ch.codePointAt(0); if (cp === 0xFE0F && !zwj) continue; cps.push(cp.toString(16)); }
+  return TWEMOJI + cps.join("-") + ".svg";
+}
+function emojiText(t, big){
+  var out = "", rest = String(t), m;
+  while ((m = rest.match(EMOJI_RE))) {
+    out += esc(rest.slice(0, m.index));
+    out += '<img class="emoji' + (big ? " emoji--big" : "") + '" src="' + twemojiUrl(m[0]) + '" alt="' + esc(m[0]) + '" draggable="false" loading="lazy" data-e="emoji">';
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return out + esc(rest);
+}
+function customEmoji(c, id, name, animated, big){
+  var s = src(c, emojiUrl(id, animated));
+  if (!s) return esc(":" + name + ":");
+  return '<img class="emoji' + (big ? " emoji--big" : "") + '" src="' + esc(s) + '" alt=":' + esc(name) + ':" title=":' + esc(name) + ':" draggable="false" loading="lazy" data-e="emoji">';
+}
+function emojiOf(c, e){
+  if (!e) return "";
+  if (e.id) return customEmoji(c, e.id, e.name || "emoji", e.animated);
+  return emojiText(e.name || "");
+}
+
+/* ---------- names */
+function userOf(c, key){ return c.users[key] || { name: "Unknown User" }; }
+function shown(u){ return u.display || u.name || "Unknown User"; }
+function nameHtml(c, key, extra){
+  var u = userOf(c, key);
+  return '<span class="name' + (extra ? " " + extra : "") + '"' + (u.color ? ' style="color:' + esc(u.color) + '"' : "") + ' title="' + esc(u.name || "") + '">' + esc(shown(u)) + "</span>";
+}
+function tagHtml(u){
+  if (u.webhook || u.bot) return '<span class="tag">' + (u.verified ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="m6.2 11.6-3-3 1.1-1.1 1.9 1.9 5.5-5.5 1.1 1.1-6.6 6.6Z"/></svg>' : "") + "APP</span>";
+  return "";
+}
+function avatarHtml(c, key, cls){
+  var u = userOf(c, key), s = src(c, u.avatar);
+  if (s) return '<img class="' + cls + '" src="' + esc(s) + '" alt="" draggable="false" loading="lazy" data-e="avatar" data-n="' + esc(shown(u).slice(0, 1)) + '">';
+  return '<span class="' + cls + ' av--blank" aria-hidden="true">' + esc(shown(u).slice(0, 1).toUpperCase()) + "</span>";
+}
+
+/* ---------- time */
+function pad(n){ return (n < 10 ? "0" : "") + n; }
+function clock(d){ return (d.getHours() % 12 || 12) + ":" + pad(d.getMinutes()) + " " + (d.getHours() < 12 ? "AM" : "PM"); }
+function sameDay(a, b){ return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+var MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+var DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+function longDate(d){ return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear(); }
+function fullDate(d){ return DAYS[d.getDay()] + ", " + longDate(d) + " at " + clock(d); }
+function stamp(ms){
+  var d = new Date(ms);
+  return (d.getMonth() + 1) + "/" + d.getDate() + "/" + String(d.getFullYear()).slice(2) + ", " + clock(d);
+}
+function timeHtml(ms, cls, label){
+  var d = new Date(ms);
+  return '<time class="' + cls + '" datetime="' + d.toISOString() + '" title="' + esc(fullDate(d)) + '">' + esc(label == null ? stamp(ms) : label) + "</time>";
+}
+function fmtTime(sec, style, now){
+  var d = new Date(sec * 1000);
+  switch (style) {
+    case "t": return clock(d);
+    case "T": return (d.getHours() % 12 || 12) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + " " + (d.getHours() < 12 ? "AM" : "PM");
+    case "d": return (d.getMonth() + 1) + "/" + d.getDate() + "/" + d.getFullYear();
+    case "D": return longDate(d);
+    case "F": return fullDate(d);
+    case "R": {
+      var s = Math.round((d - now) / 1000), a = Math.abs(s), u = [[31536000,"year"],[2592000,"month"],[86400,"day"],[3600,"hour"],[60,"minute"],[1,"second"]];
+      for (var q = 0; q < u.length; q++) if (a >= u[q][0] || q === u.length - 1) { var n = Math.max(1, Math.floor(a / u[q][0])), w = n + " " + u[q][1] + (n === 1 ? "" : "s"); return s < 0 ? w + " ago" : "in " + w; }
+    }
+    default: return longDate(d) + " at " + clock(d);
+  }
+}
+
+/* ---------- Discord markdown
+   Blocks: ``` code blocks, > and >>> quotes, # ## ### headings, -# subtext, and
+   - * 1. lists nested by indentation. Inline: ** __ * _ ~~ || and `code` in any
+   combination, [masked](links), bare and <angle> links, mentions, <t:…>
+   timestamps, custom and unicode emoji, and \ escapes. The same rules the
+   Utilities website uses for its embed preview. */
+function mention(text, style){ return '<span class="mention"' + (style || "") + ">" + esc(text) + "</span>"; }
+var INLINE = [
+  [/^\\([^0-9A-Za-z\s])/, function(m){ return esc(m[1]); }],
+  [/^(`+)([\s\S]*?[^`])\1(?!`)/, function(m){ return "<code>" + esc(m[2].trim()) + "</code>"; }],
+  [/^<(a?):(\w{2,32}):(\d{15,21})>/, function(m, c, o){ return customEmoji(c, m[3], m[2], !!m[1], o.big); }],
+  [/^<t:(-?\d{1,13})(?::([tTdDfFR]))?>/, function(m, c){ return '<span class="stamp" title="' + esc(fullDate(new Date(+m[1] * 1000))) + '">' + esc(fmtTime(+m[1], m[2] || "f", c.now)) + "</span>"; }],
+  [/^<@!?(\d{15,21})>/, function(m, c){ var u = c.users[m[1]]; return mention("@" + (u ? shown(u) : "unknown-user")); }],
+  [/^<@&(\d{15,21})>/, function(m, c){
+    var r = c.roles[m[1]];
+    if (!r) return mention("@deleted-role");
+    return mention("@" + r.name, r.color ? ' style="color:' + esc(r.color) + ";background:" + esc(r.color) + '1f"' : "");
+  }],
+  [/^<#(\d{15,21})>/, function(m, c){ var ch = c.channels[m[1]]; return mention("#" + (ch ? ch.name : "unknown")); }],
+  [/^<\/([\w-]+(?: [\w-]+){0,2}):(\d{15,21})>/, function(m){ return mention("/" + m[1]); }],
+  [/^@(everyone|here)\b/, function(m){ return mention("@" + m[1]); }],
+  [/^\[((?:\\.|[^\[\]\\])+)\]\(<?(https?:\/\/[^\s)>]+)>?(?: +"[^"]*")?\)/, function(m, c, o){ return '<a href="' + esc(m[2]) + '" target="_blank" rel="noopener noreferrer">' + inline(c, m[1], o) + "</a>"; }],
+  [/^<(https?:\/\/[^\s>]+)>/, function(m){ return '<a href="' + esc(m[1]) + '" target="_blank" rel="noopener noreferrer">' + esc(m[1]) + "</a>"; }],
+  [/^https?:\/\/[^\s<]+[^<.,:;"')\]\s]/, function(m){ return '<a href="' + esc(m[0]) + '" target="_blank" rel="noopener noreferrer">' + esc(m[0]) + "</a>"; }],
+  [/^\*\*\*([\s\S]+?)\*\*\*(?!\*)/, function(m, c, o){ return "<b><i>" + inline(c, m[1], o) + "</i></b>"; }],
+  [/^\*\*([\s\S]+?)\*\*(?!\*)/, function(m, c, o){ return "<b>" + inline(c, m[1], o) + "</b>"; }],
+  [/^__([\s\S]+?)__(?!_)/, function(m, c, o){ return "<u>" + inline(c, m[1], o) + "</u>"; }],
+  [/^\*(?=\S)((?:\*\*|\\[\s\S]|\s+(?:\\[\s\S]|[^\s*\\]|\*\*)|[^\s*\\])+?)\*(?!\*)/, function(m, c, o){ return "<i>" + inline(c, m[1], o) + "</i>"; }],
+  [/^_((?:__|\\[\s\S]|[^\\_])+?)_(?![A-Za-z0-9])/, function(m, c, o, prev){ return /[A-Za-z0-9]$/.test(prev) ? null : "<i>" + inline(c, m[1], o) + "</i>"; }],
+  [/^~~([\s\S]+?)~~/, function(m, c, o){ return "<s>" + inline(c, m[1], o) + "</s>"; }],
+  [/^\|\|([\s\S]+?)\|\|/, function(m, c, o){ return '<span class="spoiler" role="button" tabindex="0" aria-label="Spoiler"><span>' + inline(c, m[1], o) + "</span></span>"; }]
+];
+function inline(c, text, o){
+  o = o || {};
+  var s = String(text), out = "", i = 0, buf = "", prev = "";
+  var flush = function(){ if (buf) { out += emojiText(buf, o.big); buf = ""; } };
+  while (i < s.length) {
+    var rest = s.slice(i), hit = false;
+    if ("\\`<@[h*_~|".indexOf(rest[0]) >= 0) {
+      for (var k = 0; k < INLINE.length; k++) {
+        var m = rest.match(INLINE[k][0]);
+        if (!m) continue;
+        var html = INLINE[k][1](m, c, o, prev + buf);
+        if (html === null) continue;
+        flush(); out += html; i += m[0].length; prev = m[0]; hit = true; break;
+      }
+    }
+    if (!hit) { buf += s[i]; i++; }
+  }
+  flush();
+  return out;
+}
+function blocks(c, lines, o){
+  var out = "", i = 0;
+  while (i < lines.length) {
+    var line = lines[i], m;
+    if (/^```/.test(line)) {
+      var body = [], first = line.slice(3), one = first.indexOf("```");
+      if (one >= 0) { out += "<pre>" + esc(first.slice(0, one)) + "</pre>"; i++; continue; }
+      if (first && !/^[a-z0-9_+\-.#]*$/i.test(first)) body.push(first);
+      i++;
+      while (i < lines.length && lines[i].indexOf("```") < 0) { body.push(lines[i]); i++; }
+      if (i < lines.length) { var end = lines[i].indexOf("```"); if (end > 0) body.push(lines[i].slice(0, end)); i++; }
+      out += "<pre>" + esc(body.join("\n")) + "</pre>";
+      continue;
+    }
+    if (!o.inQuote && /^>>> /.test(line)) {
+      out += "<blockquote>" + blocks(c, [line.slice(4)].concat(lines.slice(i + 1)), { inQuote: true }) + "</blockquote>"; break;
+    }
+    if (!o.inQuote && /^> /.test(line)) {
+      var q = [];
+      while (i < lines.length && /^> /.test(lines[i])) { q.push(lines[i].slice(2)); i++; }
+      out += "<blockquote>" + blocks(c, q, { inQuote: true }) + "</blockquote>";
+      continue;
+    }
+    if (!o.inSub && (m = line.match(/^(#{1,3}) +(\S.*)$/))) { out += '<p class="md-h md-h' + m[1].length + '">' + inline(c, m[2]) + "</p>"; i++; continue; }
+    if (!o.inSub && (m = line.match(/^-# +(\S.*)$/))) { out += '<div class="md-sub">' + blocks(c, [m[1]], { inQuote: true, inSub: true }) + "</div>"; i++; continue; }
+    if (/^ *(?:[-*]|\d{1,9}\.) +\S/.test(line)) {
+      var items = [];
+      while (i < lines.length && (m = lines[i].match(/^( *)([-*]|\d{1,9}\.) +(\S.*)$/))) { items.push({ d: Math.floor(m[1].length / 2), ord: /\d/.test(m[2]), n: parseInt(m[2], 10), t: m[3] }); i++; }
+      for (var at = 0; at < items.length;) { var made = list(c, items, at, items[at].d); out += made.html; at = made.next; }
+      continue;
+    }
+    var para = [];
+    while (i < lines.length && !/^(```|> |#{1,3} +\S|-# +\S| *(?:[-*]|\d{1,9}\.) +\S)/.test(lines[i]) && !(!o.inQuote && /^>>> /.test(lines[i]))) { para.push(lines[i]); i++; }
+    if (para.length) out += "<p>" + para.map(function(l){ return inline(c, l, o); }).join("<br>") + "</p>";
+    else { out += "<p>" + inline(c, line, o) + "</p>"; i++; }
+  }
+  return out;
+}
+function list(c, items, at, depth){
+  var ord = items[at] && items[at].ord, html = ord ? '<ol start="' + items[at].n + '">' : "<ul>", i = at;
+  while (i < items.length && items[i].d >= depth) {
+    if (items[i].d === depth && items[i].ord !== ord) break;
+    if (items[i].d > depth) { var inner = list(c, items, i, items[i].d); html = html.replace(/<\/li>$/, inner.html + "</li>"); i = inner.next; continue; }
+    var t = items[i].t, sub = t.match(/^-# +(\S.*)$/);
+    html += "<li>" + (sub ? '<span class="md-sub">' + inline(c, sub[1]) + "</span>" : inline(c, t)) + "</li>"; i++;
+  }
+  return { html: html + (ord ? "</ol>" : "</ul>"), next: i };
+}
+function md(c, text, opt){
+  var t = String(text || "");
+  return blocks(c, t.split("\n"), { big: !!(opt && opt.jumbo) && ONLY_EMOJI.test(t) });
+}
+
+/* ---------- pictures and files */
+function fit(w, h, maxW, maxH){
+  if (!w || !h) return null;
+  var k = Math.min(1, maxW / w, maxH / h);
+  return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
+}
+function missing(label){ return '<span class="lost">' + ICON.image + "<span>" + esc(label || "Image") + " is no longer available</span></span>"; }
+function tile(c, m, o){
+  o = o || {};
+  var s = src(c, m && m.url), cls = "pic" + (o.spoiler ? " is-spoiler" : "") + (o.cls ? " " + o.cls : "");
+  if (!s) return '<span class="' + cls + ' is-lost">' + missing(o.name) + "</span>";
+  var box = o.fill ? null : fit(m.w, m.h, o.maxW || 550, o.maxH || 350);
+  return '<span class="' + cls + '" data-zoom role="button" tabindex="0"' + (box ? ' style="width:' + box.w + "px;aspect-ratio:" + box.w + "/" + box.h + '"' : "") + ">" +
+    '<img src="' + esc(s) + '" alt="' + esc(o.alt || o.name || "") + '" loading="lazy" draggable="false" data-e="pic" data-n="' + esc(o.name || "Image") + '">' +
+    (o.badge ? '<span class="pic__badge">' + esc(o.badge) + "</span>" : "") +
+    (o.spoiler ? '<span class="pic__veil">SPOILER</span>' : "") + "</span>";
+}
+function gallery(c, items){
+  if (!items.length) return "";
+  if (items.length === 1) return '<div class="media">' + tile(c, items[0].media, items[0]) + "</div>";
+  return '<div class="media media--grid media--' + Math.min(items.length, 4) + '">' + items.map(function(it){
+    return tile(c, it.media, Object.assign({}, it, { fill: true }));
+  }).join("") + "</div>";
+}
+function fileCard(a, note){
+  var name = esc(a.name || "file"), size = bytesText(a.size);
+  var title = isHttp(a.url) ? '<a class="file__name" href="' + esc(a.url) + '" target="_blank" rel="noopener noreferrer">' + name + "</a>" : '<span class="file__name">' + name + "</span>";
+  return '<div class="file">' + (a.kind === "video" || a.kind === "audio" ? ICON.play : ICON.file) + '<div class="file__meta">' + title +
+    '<span class="file__size">' + esc([size, note].filter(Boolean).join(" · ")) + "</span></div></div>";
+}
+function attachmentsHtml(c, list){
+  if (!list || !list.length) return "";
+  var pics = list.filter(function(a){ return a.kind === "image"; }).map(function(a){ return { media: a, name: a.name, alt: a.alt, spoiler: a.spoiler }; });
+  var rest = list.filter(function(a){ return a.kind !== "image"; });
+  return gallery(c, pics) + rest.map(function(a){
+    return fileCard(a, a.kind === "video" ? "Video, not saved in the transcript" : a.kind === "audio" ? "Audio, not saved in the transcript" : "File, not saved in the transcript");
+  }).join("");
+}
+
+/* ---------- embeds */
+function plain(t){ return emojiText(t || ""); }
+function embedHtml(c, e){
+  var kind = e.type || "rich", big = e.image || null, thumb = e.thumbnail || null;
+  var rich = e.title || e.description || (e.fields && e.fields.length) || (e.author && e.author.name) || (e.footer && e.footer.text);
+  /* a bare picture or GIF somebody linked: Discord shows just the picture */
+  if ((kind === "image" || kind === "gifv") && !rich) {
+    var only = thumb || big;
+    if (!only) return "";
+    return '<div class="media">' + tile(c, only, { name: kind === "gifv" ? "GIF" : "Image", badge: kind === "gifv" ? "GIF" : "" }) + "</div>";
+  }
+  /* a video link: the still frame, large, the way Discord shows a player */
+  var play = false;
+  if (kind === "video" && thumb && !big) { big = thumb; thumb = null; play = true; }
+  if (!rich && !big && !thumb && !e.provider) return "";                 // nothing to draw: no empty box
+  var html = '<div class="embed"' + (e.color ? ' style="--bar:' + esc(e.color) + '"' : "") + '><div class="embed__grid' + (thumb && src(c, thumb.url) ? " has-thumb" : "") + '"><div class="embed__main">';
+  if (e.provider) html += '<p class="embed__provider">' + plain(e.provider) + "</p>";
+  if (e.author && e.author.name) {
+    var ai = src(c, e.author.icon), an = plain(e.author.name);
+    html += '<p class="embed__author">' + (ai ? '<img src="' + esc(ai) + '" alt="" loading="lazy" data-e="gone">' : "") + (isHttp(e.author.url) ? '<a href="' + esc(e.author.url) + '" target="_blank" rel="noopener noreferrer">' + an + "</a>" : "<span>" + an + "</span>") + "</p>";
+  }
+  if (e.title) html += '<p class="embed__title">' + (isHttp(e.url) ? '<a href="' + esc(e.url) + '" target="_blank" rel="noopener noreferrer">' + inline(c, e.title) + "</a>" : inline(c, e.title)) + "</p>";
+  if (e.description) html += '<div class="embed__desc md">' + md(c, e.description) + "</div>";
+  var fields = (e.fields || []).filter(function(f){ return f.name || f.value; });
+  if (fields.length) {
+    var per = thumb ? 2 : 3, row = [];
+    html += '<div class="embed__fields">';
+    var flush = function(){ if (row.length) { html += '<div class="embed__row" style="--n:' + row.length + '">' + row.join("") + "</div>"; row = []; } };
+    fields.forEach(function(f){
+      var cell = '<div><p class="embed__fname">' + inline(c, f.name || "") + '</p><div class="md">' + md(c, f.value || "") + "</div></div>";
+      if (!f.inline) { flush(); row.push(cell); flush(); } else { row.push(cell); if (row.length === per) flush(); }
+    });
+    flush(); html += "</div>";
+  }
+  html += "</div>";
+  if (thumb && src(c, thumb.url)) html += '<span class="embed__thumb">' + tile(c, thumb, { name: "Thumbnail", fill: true }) + "</span>";
+  html += "</div>";
+  if (big) html += '<div class="embed__image">' + tile(c, big, { name: "Image", maxW: 400, maxH: 300, badge: play ? "VIDEO" : "" }) + "</div>";
+  if ((e.footer && e.footer.text) || e.timestamp) {
+    var fi = src(c, e.footer && e.footer.icon), ft = e.footer && e.footer.text ? plain(e.footer.text) : "";
+    html += '<p class="embed__footer">' + (fi ? '<img src="' + esc(fi) + '" alt="" loading="lazy" data-e="gone">' : "") + "<span>" + ft + (ft && e.timestamp ? '<span class="embed__dot">•</span>' : "") + (e.timestamp ? esc(stamp(e.timestamp)) : "") + "</span></p>";
+  }
+  return html + "</div>";
+}
+
+/* ---------- components: buttons and menus, and the newer layout pieces */
+var BTN = { 1: "primary", 2: "secondary", 3: "success", 4: "danger", 5: "link", 6: "premium" };
+function buttonHtml(c, b){
+  var style = BTN[b.style] || "secondary", body = (b.emoji ? emojiOf(c, b.emoji) : "") + (b.label ? "<span>" + plain(b.label) + "</span>" : "");
+  var cls = "btn btn--" + style + (b.disabled ? " is-off" : "");
+  if (style === "link" && isHttp(b.url) && !b.disabled) return '<a class="' + cls + '" href="' + esc(b.url) + '" target="_blank" rel="noopener noreferrer">' + body + ICON.link + "</a>";
+  return '<span class="' + cls + '">' + body + (style === "link" ? ICON.link : "") + "</span>";
+}
+function selectHtml(c, s){
+  var label = s.chosen ? (s.chosen.emoji ? emojiOf(c, s.chosen.emoji) : "") + "<span>" + plain(s.chosen.label) + "</span>" : '<span class="select__ph">' + plain(s.placeholder || "Make a selection") + "</span>";
+  return '<div class="select' + (s.disabled ? " is-off" : "") + '">' + label + ICON.chevron + "</div>";
+}
+function componentHtml(c, n){
+  if (!n) return "";
+  var kids = function(){ return (n.components || []).map(function(k){ return componentHtml(c, k); }).join(""); };
+  switch (n.type) {
+    case 1: return '<div class="row">' + kids() + "</div>";
+    case 2: return buttonHtml(c, n);
+    case 3: case 5: case 6: case 7: case 8: return selectHtml(c, n);
+    case 9: return '<div class="section"><div class="section__text">' + kids() + "</div>" + (n.accessory ? '<div class="section__side">' + componentHtml(c, n.accessory) + "</div>" : "") + "</div>";
+    case 10: return '<div class="md">' + md(c, n.content) + "</div>";
+    case 11: return '<span class="thumb">' + tile(c, n.media, { name: "Thumbnail", alt: n.alt, spoiler: n.spoiler, fill: true }) + "</span>";
+    case 12: return gallery(c, (n.items || []).map(function(it){ return { media: it.media, alt: it.alt, spoiler: it.spoiler, name: "Image" }; }));
+    case 13: return fileCard({ name: n.name, size: n.size, url: n.url, kind: "file" }, "File, not saved in the transcript");
+    case 14: return '<div class="sep' + (n.spacing === 2 ? " sep--lg" : "") + (n.divider === false ? " sep--blank" : "") + '"></div>';
+    case 17: return '<div class="box' + (n.color ? " has-bar" : "") + (n.spoiler ? " is-spoiler" : "") + '"' + (n.color ? ' style="--bar:' + esc(n.color) + '"' : "") + ">" + kids() + (n.spoiler ? '<span class="pic__veil">SPOILER</span>' : "") + "</div>";
+    default: return kids();
+  }
+}
+
+/* ---------- the rest of a message */
+function reactionsHtml(c, list){
+  if (!list || !list.length) return "";
+  return '<div class="reactions">' + list.map(function(r){ return '<span class="reaction">' + emojiOf(c, r.emoji) + "<span>" + esc(r.count) + "</span></span>"; }).join("") + "</div>";
+}
+function stickersHtml(c, list){
+  return (list || []).map(function(s){
+    var u = src(c, s.url);
+    return u ? '<img class="sticker" src="' + esc(u) + '" alt="' + esc(s.name) + '" title="' + esc(s.name) + '" loading="lazy" data-e="pic" data-n="Sticker">' : '<span class="lost">' + ICON.image + "<span>Sticker: " + esc(s.name) + "</span></span>";
+  }).join("");
+}
+function pollHtml(c, p){
+  if (!p) return "";
+  var total = (p.answers || []).reduce(function(n, a){ return n + (a.votes || 0); }, 0);
+  return '<div class="poll"><p class="poll__q">' + plain(p.question) + "</p>" + (p.answers || []).map(function(a){
+    var pct = total ? Math.round((a.votes || 0) * 100 / total) : 0;
+    return '<div class="poll__a"><span class="poll__fill" style="width:' + pct + '%"></span><span class="poll__t">' + emojiOf(c, a.emoji) + plain(a.text) + '</span><span class="poll__n">' + plural(a.votes || 0, "vote") + " · " + pct + "%</span></div>";
+  }).join("") + '<p class="poll__foot">' + plural(total, "vote") + "</p></div>";
+}
+function bodyHtml(c, m, o){
+  var html = "";
+  if (m.content) {
+    var text = md(c, m.content, { jumbo: true });
+    if (o && o.edited) text = /<\/p>$/.test(text) ? text.replace(/<\/p>$/, ' <span class="edited">(edited)</span></p>') : text + '<span class="edited">(edited)</span>';
+    html += '<div class="md">' + text + "</div>";
+  }
+  html += attachmentsHtml(c, m.attachments);
+  html += (m.embeds || []).map(function(e){ return embedHtml(c, e); }).join("");
+  html += stickersHtml(c, m.stickers);
+  if (m.components && m.components.length) html += '<div class="components">' + m.components.map(function(n){ return componentHtml(c, n); }).join("") + "</div>";
+  return html;
+}
+function replyHtml(c, m){
+  if (m.command) {
+    return '<div class="ref">' + avatarHtml(c, m.command.user, "ref__av") + nameHtml(c, m.command.user) + '<span class="ref__text">used <span class="cmd">' + ICON.slash + esc(m.command.name ? "/" + m.command.name : "a command") + "</span></span></div>";
+  }
+  if (!m.reply) return "";
+  var t = c.byId[m.reply];
+  if (!t) return '<div class="ref ref--gone"><span class="ref__text"><i>Original message was deleted or is outside this transcript.</i></span></div>';
+  var text = t.content ? inline(c, String(t.content).split("\n")[0].slice(0, 300)) : "<i>" + ((t.attachments && t.attachments.length) || (t.embeds && t.embeds.length) ? "Click to see attachment" : "Click to see message") + "</i>";
+  return '<div class="ref" data-jump="' + esc(t.id) + '" role="button" tabindex="0">' + avatarHtml(c, t.author, "ref__av") + nameHtml(c, t.author) + tagHtml(userOf(c, t.author)) + '<span class="ref__text">' + text + "</span></div>";
+}
+function forwardHtml(c, f){
+  var from = f.from && c.channels[f.from] ? "#" + c.channels[f.from].name : "";
+  return '<div class="fwd"><p class="fwd__tag">' + ICON.forward + "<i>Forwarded</i></p>" + bodyHtml(c, f) +
+    (from || f.ts ? '<p class="fwd__from">' + esc([from, f.ts ? stamp(f.ts) : ""].filter(Boolean).join(" • ")) + "</p>" : "") + "</div>";
+}
+var SYSTEM = {
+  join: ["join", function(c, m){ return nameHtml(c, m.author) + " joined the server."; }],
+  pin: ["pin", function(c, m){ return nameHtml(c, m.author) + " pinned a message to this channel."; }],
+  boost: ["boost", function(c, m){ return nameHtml(c, m.author) + " just boosted the server!"; }],
+  thread: ["thread", function(c, m){ return nameHtml(c, m.author) + " started a thread: <b>" + esc(m.content || "") + "</b>"; }],
+  rename: ["thread", function(c, m){ return nameHtml(c, m.author) + " changed the channel name: <b>" + esc(m.content || "") + "</b>"; }],
+  add: ["join", function(c, m){ return nameHtml(c, m.author) + " added " + (m.target ? nameHtml(c, m.target) : "somebody") + " to the thread."; }],
+  remove: ["leave", function(c, m){ return nameHtml(c, m.author) + " removed " + (m.target ? nameHtml(c, m.target) : "somebody") + " from the thread."; }],
+  "poll-result": ["pin", function(c, m){ return nameHtml(c, m.author) + "'s poll has closed."; }]
+};
+function messagesHtml(c){
+  var out = "", prev = null, open = false;
+  c.p.messages.forEach(function(m){
+    var d = new Date(m.ts);
+    if (!prev || !sameDay(new Date(prev.ts), d)) {
+      if (open) { out += "</div>"; open = false; }
+      out += '<div class="day"><span>' + esc(longDate(d)) + "</span></div>";
+      prev = null;
+    }
+    var sys = SYSTEM[m.kind];
+    if (sys) {
+      if (open) { out += "</div>"; open = false; }
+      out += '<div class="sys sys--' + sys[0] + '" id="m-' + esc(m.id) + '"><span class="sys__icon">' + ICON[sys[0]] + '</span><div class="sys__text">' + sys[1](c, m) + " " + timeHtml(m.ts, "sys__time") + "</div></div>";
+      prev = m; return;
+    }
+    var head = !prev || SYSTEM[prev.kind] || prev.author !== m.author || m.reply || m.command || m.ts - prev.ts > 7 * 60000;
+    if (head) {
+      if (open) out += "</div>";
+      out += '<div class="group">'; open = true;
+    }
+    var u = userOf(c, m.author), inner = (m.forwarded ? forwardHtml(c, m.forwarded) : bodyHtml(c, m, { edited: !!m.edited })) + pollHtml(c, m.poll) + reactionsHtml(c, m.reactions);
+    out += '<div class="msg' + (head ? " msg--head" : "") + '" id="m-' + esc(m.id) + '">' +
+      (head ? replyHtml(c, m) : "") +
+      '<div class="msg__side">' + (head ? avatarHtml(c, m.author, "av") : timeHtml(m.ts, "msg__at", clock(d))) + "</div>" +
+      '<div class="msg__main">' +
+        (head ? '<div class="msg__head">' + nameHtml(c, m.author, "msg__name") + tagHtml(u) + timeHtml(m.ts, "msg__time") + "</div>" : "") +
+        inner +
+      "</div></div>";
+    prev = m;
+  });
+  return out + (open ? "</div>" : "");
+}
+
+/* ---------- the page around the messages */
+var STATUS = {
+  verified: ["ok", "shield", "Verified", "Signed by its exporter and unchanged since it was exported."],
+  intact: ["ok", "shield", "Unchanged", "This file matches its signature: nothing in it has changed since it was signed."],
+  modified: ["bad", "alert", "Modified", "This file was changed after it was exported. Do not rely on what it shows."],
+  unsigned: ["off", "shield", "Unsigned", "This transcript was exported without a signature, so changes to it cannot be detected."],
+  unknown: ["off", "shield", "Not checked", "This browser cannot check the signature. Open the file in a current browser to check it."],
+  checking: ["off", "shield", "Checking", "Checking the signature."]
+};
+function context(payload){
+  var c = { p: payload, assets: payload.assets || {}, users: payload.users || {}, roles: payload.roles || {}, channels: payload.channels || {}, byId: {}, now: Date.now() };
+  (payload.messages || []).forEach(function(m){ c.byId[m.id] = m; });
+  return c;
+}
+function render(payload, opt){
+  var c = context(payload), o = opt || {}, st = STATUS[o.status] || STATUS.unsigned;
+  var g = payload.guild || {}, ch = payload.channel || {}, msgs = payload.messages || [];
+  var counts = {}, order = [];
+  msgs.forEach(function(m){ if (!m.author) return; if (!counts[m.author]) { counts[m.author] = 0; order.push(m.author); } counts[m.author]++; });
+  order.sort(function(a, b){ return counts[b] - counts[a]; });
+  var savedCount = Object.keys(c.assets).length, icon = src(c, g.icon), brand = payload.brand || null;
+  var badge = '<span class="tr-badge tr-badge--' + st[0] + '" id="trBadge" title="' + esc(st[3]) + '">' + ICON[st[1]] + "<span>" + st[2] + "</span></span>";
+
+  return '<div class="tr">' +
+    '<header class="tr-bar"><span class="tr-bar__hash">' + ICON.hash + '</span><b class="tr-bar__name">' + esc(ch.name || "transcript") + "</b>" +
+      (g.name ? '<span class="tr-bar__sep"></span><span class="tr-bar__topic">' + esc(g.name) + "</span>" : "") + badge + "</header>" +
+    '<main class="tr-main">' +
+      (o.status === "modified" ? '<div class="tr-warn">' + ICON.alert + "<div><b>This transcript was modified.</b><span>The file no longer matches the signature it was exported with, so what it shows may not be what was said.</span></div></div>" : "") +
+      '<section class="tr-intro">' +
+        (icon ? '<img class="tr-intro__icon" src="' + esc(icon) + '" alt="" data-e="gone">' : '<span class="tr-intro__icon tr-intro__icon--hash">' + ICON.hash + "</span>") +
+        '<h1 class="tr-intro__h">Transcript of #' + esc(ch.name || "channel") + "</h1>" +
+        '<p class="tr-intro__p">' + (g.name ? "From <b>" + esc(g.name) + "</b>. " : "") + "Exported " + esc(fullDate(new Date(payload.exportedAt || Date.now()))) + ".</p>" +
+        '<ul class="tr-facts"><li><b>' + msgs.length + "</b> " + (msgs.length === 1 ? "message" : "messages") + "</li><li><b>" + order.length + "</b> " + (order.length === 1 ? "participant" : "participants") + "</li><li><b>" + savedCount + "</b> " + (savedCount === 1 ? "image" : "images") + " saved</li></ul>" +
+        (order.length ? '<ul class="tr-people">' + order.slice(0, 24).map(function(k){
+          var u = userOf(c, k);
+          return "<li>" + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
+        }).join("") + (order.length > 24 ? "<li><span class=\"tr-people__n\">and " + (order.length - 24) + " more</span></li>" : "") + "</ul>" : "") +
+      "</section>" +
+      '<div class="tr-log">' + (msgs.length ? messagesHtml(c) : '<p class="tr-empty">There are no messages in this transcript.</p>') + "</div>" +
+      '<footer class="tr-foot"><span>End of transcript</span>' + (brand && brand.name ? "<span>Exported by " + (isHttp(brand.url) ? '<a href="' + esc(brand.url) + '" target="_blank" rel="noopener noreferrer">' + esc(brand.name) + "</a>" : esc(brand.name)) + "</span>" : "") + "</footer>" +
+    "</main>" +
+    '<div class="tr-zoom" id="trZoom" hidden><img alt=""></div>' +
+  "</div>";
+}
+
+/* ---------- reading the packed data, and checking it (browser only) */
+function bytesOf(b64){
+  var bin = atob(b64), out = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function decode(envelope){
+  if (!envelope || envelope.enc !== "gzip+base64" || typeof envelope.data !== "string") return Promise.reject(new Error("Not a transcript."));
+  if (envelope.v !== 1) return Promise.reject(new Error("This transcript was made by a newer version."));
+  if (typeof DecompressionStream === "undefined") return Promise.reject(new Error("This browser is too old to open the transcript."));
+  var stream = new Blob([bytesOf(envelope.data)]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream).text().then(function(t){ return JSON.parse(t); });
+}
+/* "verified" needs a key the page already trusted. A file cannot vouch for itself: it carries its
+   own key, so on its own the most it can say is that it matches the signature it came with. */
+function check(envelope, trustedKeys){
+  if (!envelope || typeof envelope.sig !== "string" || typeof envelope.key !== "string") return Promise.resolve("unsigned");
+  var subtle = root.crypto && root.crypto.subtle;
+  if (!subtle) return Promise.resolve("unknown");
+  var data, sig, raw;
+  try { data = bytesOf(envelope.data); sig = bytesOf(envelope.sig); raw = bytesOf(envelope.key); } catch (e) { return Promise.resolve("modified"); }
+  return subtle.importKey("raw", raw, { name: "Ed25519" }, false, ["verify"]).then(function(key){
+    return subtle.verify({ name: "Ed25519" }, key, sig, data);
+  }).then(function(ok){
+    if (!ok) return "modified";
+    return (trustedKeys || []).indexOf(envelope.key) >= 0 ? "verified" : "intact";
+  }, function(){ return "unknown"; });
+}
+
+/* ---------- the page: the handful of things that answer a click */
+function wire(el){
+  var zoom = el.querySelector("#trZoom");
+  function closeZoom(){ if (zoom) zoom.hidden = true; }
+  function act(t){
+    var sp = t.closest(".spoiler, .is-spoiler");
+    if (sp && !sp.classList.contains("is-open")) { sp.classList.add("is-open"); return true; }
+    var jump = t.closest("[data-jump]");
+    if (jump) {
+      var to = el.querySelector("#m-" + (root.CSS && CSS.escape ? CSS.escape(jump.getAttribute("data-jump")) : jump.getAttribute("data-jump")));
+      if (to) { to.scrollIntoView({ block: "center", behavior: "smooth" }); to.classList.remove("is-flash"); void to.offsetWidth; to.classList.add("is-flash"); }
+      return true;
+    }
+    var pic = t.closest("[data-zoom]");
+    if (pic && zoom) { var im = pic.querySelector("img"); if (im) { zoom.querySelector("img").src = im.src; zoom.hidden = false; } return true; }
+    return false;
+  }
+  el.addEventListener("click", function(e){
+    if (zoom && !zoom.hidden && e.target.closest("#trZoom")) { closeZoom(); return; }
+    if (e.target.closest("a")) return;
+    act(e.target);
+  });
+  el.addEventListener("keydown", function(e){
+    if (e.key === "Escape") { closeZoom(); return; }
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[role=button]")) { if (act(e.target)) e.preventDefault(); }
+  });
+  /* a picture that will not load: an emoji falls back to its text, an avatar to an initial,
+     anything else to a line saying it is gone. Listened for here because "error" does not bubble. */
+  el.addEventListener("error", function(e){
+    var im = e.target;
+    if (!im || im.tagName !== "IMG") return;
+    var kind = im.getAttribute("data-e");
+    if (kind === "emoji") { im.replaceWith(document.createTextNode(im.alt)); return; }
+    if (kind === "avatar") { var s = document.createElement("span"); s.className = im.className + " av--blank"; s.textContent = (im.getAttribute("data-n") || "?").toUpperCase(); im.replaceWith(s); return; }
+    if (kind === "pic") { var box = im.closest(".pic") || im, w = document.createElement("span"); w.className = "pic is-lost"; w.innerHTML = missing(im.getAttribute("data-n")); box.replaceWith(w); return; }
+    im.remove();
+  }, true);
+}
+function setBadge(el, status){
+  var b = el.querySelector("#trBadge"), st = STATUS[status];
+  if (!b || !st) return;
+  b.className = "tr-badge tr-badge--" + st[0]; b.title = st[3];
+  b.innerHTML = ICON[st[1]] + "<span>" + st[2] + "</span>";
+}
+function fail(el, text){ el.innerHTML = '<div class="tr"><div class="tr-error">' + ICON.alert + "<b>This transcript cannot be opened.</b><span>" + esc(text) + "</span></div></div>"; }
+
+/* Shows a transcript in `el`. `envelope` is the object from a file's transcript-data block. */
+function mount(el, envelope, opt){
+  var o = opt || {};
+  return Promise.all([decode(envelope), check(envelope, o.trustedKeys)]).then(function(got){
+    el.innerHTML = render(got[0], { status: got[1] });
+    wire(el);
+    return { status: got[1], payload: got[0] };
+  }, function(err){
+    /* data that will not unpack is the plainest kind of modified */
+    fail(el, envelope && envelope.sig ? "The file is damaged or was changed after it was exported." : (err && err.message) || "The file is damaged.");
+    return { status: "modified", payload: null };
+  });
+}
+
+root.UtilTranscript = { render: render, mount: mount, decode: decode, check: check, emojiUrl: emojiUrl, setBadge: setBadge };
+
+/* a transcript file opens itself */
+if (typeof document !== "undefined") {
+  var boot = function(){
+    var data = document.getElementById("transcript-data"), el = document.getElementById("transcript");
+    if (!data || !el || el.getAttribute("data-mounted")) return;
+    el.setAttribute("data-mounted", "1");
+    var envelope = null;
+    try { envelope = JSON.parse(data.textContent); } catch (e) { fail(el, "The file is damaged."); return; }
+    mount(el, envelope, { trustedKeys: root.UtilTranscriptTrustedKeys });
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot); else boot();
+}
+})(typeof window !== "undefined" ? window : globalThis);
