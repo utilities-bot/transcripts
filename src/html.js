@@ -93,7 +93,9 @@ function summary(payload, stats) {
   const widest = (field) => Math.max(0, ...spoke.map((one) => one[field].length));
   const [countWidth, nameWidth] = [widest("count"), Math.min(32, widest("name"))];
   const exported = new Date(payload.exportedAt).toISOString().replace("T", " ").slice(0, 16);
-  const skipped = stats?.skipped ?? 0;
+  const images = stats ?? payload.stats?.images ?? { saved: 0, skipped: 0 };
+  const files = payload.stats?.files ?? { saved: 0, skipped: 0 };
+  const kept = (one, left) => `${String(one.saved)} saved` + (one.skipped > 0 ? `, ${String(one.skipped)} ${left}` : "");
 
   return [
     "<Transcript>",
@@ -101,7 +103,9 @@ function summary(payload, stats) {
     row("Channel", `#${safe(payload.channel.name)} (${safe(payload.channel.id)})`),
     row("Exported", `${exported} UTC`),
     row("Messages", String(payload.messages.length) + (payload.truncated ? ` (${String(payload.truncated)} older left out to fit the size limit)` : "")),
-    row("Images", `${String(stats?.saved ?? 0)} saved` + (skipped > 0 ? `, ${String(skipped)} left as links` : "")),
+    row("Images", kept(images, "left as links")),
+    // Said only when somebody uploaded one: most tickets have no files at all.
+    ...(files.saved + files.skipped > 0 ? [row("Files", kept(files, "left as links"))] : []),
     "",
     "<Participants>",
     ...spoke.map((one) => `    ${one.count.padStart(countWidth)}  ${one.name.padEnd(nameWidth)}  ${one.id}`),

@@ -85,6 +85,9 @@ const PICTURES = new Map([
   [`${MEDIA}/attachments/1/12/receipt.png`, () => png(640, 440, [70, 50, 40], [200, 150, 90])],
   [`${MEDIA}/attachments/1/13/banner.png`, () => png(800, 260, [24, 26, 34], [88, 101, 242])],
   [`${MEDIA}/external/thumb/premium.png`, () => png(160, 160, [241, 196, 15], [200, 120, 20])],
+  // A file that is not a picture. The video beside it in the sample is not here: Discord no
+  // longer has it, which is what a file that cannot be saved looks like.
+  [`${CDN}/attachments/1/20/orders-export.csv`, () => Buffer.from("order,amount\nUT-48213,4.99\nUT-48213,4.99\n")],
 ]);
 
 /** A `fetch` that knows only the fixture's pictures. */
@@ -95,7 +98,9 @@ export function fakeFetch(calls = []) {
     const draw = PICTURES.get(`${url.origin}${url.pathname}`);
     if (draw === undefined) return Promise.resolve(new Response("gone", { status: 404 }));
 
-    return Promise.resolve(new Response(draw(), { status: 200, headers: { "content-type": "image/png" } }));
+    const type = url.pathname.endsWith(".csv") ? "text/csv" : "image/png";
+
+    return Promise.resolve(new Response(draw(), { status: 200, headers: { "content-type": type } }));
   };
 }
 
@@ -279,7 +284,7 @@ export function sampleMessages() {
     gap: 15_000,
     content: "And the full export, in case it helps. The card ends in ||4421||.",
     attachments: [
-      { name: "orders-export.csv", size: 18_420, contentType: "text/csv", url: `${CDN}/attachments/1/20/orders-export.csv?ex=1` },
+      { name: "orders-export.csv", size: 41, contentType: "text/csv", url: `${CDN}/attachments/1/20/orders-export.csv?ex=1` },
       { name: "screen-recording.mp4", size: 4_812_330, contentType: "video/mp4", url: `${CDN}/attachments/1/21/screen-recording.mp4?ex=1` },
     ],
   });

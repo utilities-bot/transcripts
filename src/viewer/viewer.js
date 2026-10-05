@@ -51,6 +51,7 @@ var ICON = {
   image: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5Zm13.35 8.13 3.5 4.67c.37.5.02 1.2-.6 1.2H5.81a.75.75 0 0 1-.59-1.22l1.86-2.32a1.5 1.5 0 0 1 2.34 0l.5.64 2.23-2.97a2 2 0 0 1 3.2 0ZM10.2 5.98c.23-.91-.88-1.55-1.55-.9a.93.93 0 0 1-1.3 0c-.67-.65-1.78-.01-1.55.9a.93.93 0 0 1-.65 1.12c-.9.26-.9 1.54 0 1.8.48.14.77.63.65 1.12-.23.91.88 1.55 1.55.9a.93.93 0 0 1 1.3 0c.67.65 1.78.01 1.55-.9a.93.93 0 0 1 .65-1.12c.9-.26.9-1.54 0-1.8a.93.93 0 0 1-.65-1.12Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
   shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1.5 3.5 4.6v6.5c0 5.2 3.5 9.9 8.5 11.4 5-1.5 8.5-6.2 8.5-11.4V4.6L12 1.5Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 4.8-4.8 1.4 1.4-6.2 6.2Z"/></svg>',
   alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2Zm1 15h-2v-2h2v2Zm0-4h-2V9h2v4Z"/></svg>',
+  download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a1 1 0 0 1 1 1v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V3a1 1 0 0 1 1-1ZM3 20a1 1 0 0 1 1-1h16a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1Z"/></svg>',
   search: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.62 17.03a9 9 0 1 1 1.41-1.41l4.68 4.67a1 1 0 0 1-1.42 1.42l-4.67-4.68ZM17 10a7 7 0 1 0-14 0 7 7 0 0 0 14 0Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
   slash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 3a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5Zm9.6 3.3a1 1 0 0 1 .6 1.3l-4.5 10.5a1 1 0 1 1-1.84-.8L13.3 6.9a1 1 0 0 1 1.3-.6Z"/></svg>'
 };
@@ -62,7 +63,12 @@ function src(c, url){
   if (isPicture(saved)) return saved;
   return isHttp(url) ? url : null;
 }
-function saved(c, url){ return isPicture(c.assets[url]); }
+/* A file saved in the transcript. Only ever plain bytes handed to a download link, never a page:
+   the exporter stores every file as application/octet-stream, and anything else is refused here. */
+function savedFile(c, url){
+  var v = typeof url === "string" ? c.assets[url] : null;
+  return typeof v === "string" && /^data:application\/octet-stream;base64,[A-Za-z0-9+\/=]*$/.test(v) ? v : null;
+}
 
 /* ---------- emoji */
 function twemojiUrl(e){
@@ -130,6 +136,23 @@ function relative(s){
     a < 129600 ? "a day" : a < 2246400 ? n(86400, "days") : a < 3888000 ? "a month" : a < 29808000 ? n(2592000, "months") : a < 47304000 ? "a year" : n(31536000, "years");
   return s < 0 ? t + " ago" : "in " + t;
 }
+/* how long something lasted, in the two largest units that matter: "2h 14m", "3d 4h", "45s" */
+function lasted(ms){
+  var s = Math.max(0, Math.round(ms / 1000)), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  if (d) return d + "d" + (h ? " " + h + "h" : "");
+  if (h) return h + "h" + (m ? " " + m + "m" : "");
+  if (m) return m + "m";
+  return s + "s";
+}
+/* The reader's own time zone, by name and as an offset: "Pacific/Auckland", "UTC+13:00". Every time
+   on the page is drawn in it, so it is said once where somebody comparing notes will look. */
+function zone(){
+  var name = "";
+  try { name = new Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) {}
+  var off = -new Date().getTimezoneOffset(), a = Math.abs(off);
+  return { name: name, utc: "UTC" + (off < 0 ? "-" : "+") + Math.floor(a / 60) + ":" + (a % 60 < 10 ? "0" : "") + (a % 60) };
+}
+function utcText(ms){ return new Date(ms).toISOString().replace("T", " ").slice(0, 16) + " UTC"; }
 function fmtTime(sec, style, now){
   var d = new Date(sec * 1000);
   switch (style) {
@@ -279,19 +302,20 @@ function gallery(c, items){
     return tile(c, it.media, Object.assign({}, it, { fill: true }));
   }).join("") + "</div>";
 }
-function fileCard(a, note){
-  var name = esc(a.name || "file"), size = bytesText(a.size);
-  var title = isHttp(a.url) ? '<a class="file__name" href="' + esc(a.url) + '" target="_blank" rel="noopener noreferrer">' + name + "</a>" : '<span class="file__name">' + name + "</span>";
-  return '<div class="file">' + (a.kind === "video" || a.kind === "audio" ? ICON.play : ICON.file) + '<div class="file__meta">' + title +
-    '<span class="file__size">' + esc([size, note].filter(Boolean).join(" · ")) + "</span></div></div>";
+function fileCard(c, a){
+  var name = esc(a.name || "file"), size = bytesText(a.size), data = savedFile(c, a.url);
+  var title = data ? '<a class="file__name" href="' + data + '" download="' + name + '">' + name + "</a>"
+    : isHttp(a.url) ? '<a class="file__name" href="' + esc(a.url) + '" target="_blank" rel="noopener noreferrer">' + name + "</a>"
+    : '<span class="file__name">' + name + "</span>";
+  var note = data ? "Saved in this transcript" : "Not saved, the link may have expired";
+  return '<div class="file' + (data ? " is-saved" : "") + '">' + (a.kind === "video" || a.kind === "audio" ? ICON.play : ICON.file) + '<div class="file__meta">' + title +
+    '<span class="file__size">' + esc([size, note].filter(Boolean).join(" \u00b7 ")) + "</span></div>" + (data ? '<a class="file__get" href="' + data + '" download="' + name + '" title="Download" aria-label="Download ' + name + '">' + ICON.download + "</a>" : "") + "</div>";
 }
 function attachmentsHtml(c, list){
   if (!list || !list.length) return "";
   var pics = list.filter(function(a){ return a.kind === "image"; }).map(function(a){ return { media: a, name: a.name, alt: a.alt, spoiler: a.spoiler, badge: a.gif ? "GIF" : "" }; });
   var rest = list.filter(function(a){ return a.kind !== "image"; });
-  return gallery(c, pics) + rest.map(function(a){
-    return fileCard(a, a.kind === "video" ? "Video, not saved in the transcript" : a.kind === "audio" ? "Audio, not saved in the transcript" : "File, not saved in the transcript");
-  }).join("");
+  return gallery(c, pics) + rest.map(function(a){ return fileCard(c, a); }).join("");
 }
 
 /* ---------- embeds */
@@ -364,7 +388,7 @@ function componentHtml(c, n){
     case 10: return '<div class="md">' + md(c, n.content) + "</div>";
     case 11: return '<span class="thumb">' + tile(c, n.media, { name: "Thumbnail", alt: n.alt, spoiler: n.spoiler, fill: true }) + "</span>";
     case 12: return gallery(c, (n.items || []).map(function(it){ return { media: it.media, alt: it.alt, spoiler: it.spoiler, name: "Image" }; }));
-    case 13: return fileCard({ name: n.name, size: n.size, url: n.url, kind: "file" }, "File, not saved in the transcript");
+    case 13: return fileCard(c, { name: n.name, size: n.size, url: n.url, kind: "file" });
     case 14: return '<div class="sep' + (n.spacing === 2 ? " sep--lg" : "") + (n.divider === false ? " sep--blank" : "") + '"></div>';
     case 17: return '<div class="box' + (n.color ? " has-bar" : "") + (n.spoiler ? " is-spoiler" : "") + '"' + (n.color ? ' style="--bar:' + esc(n.color) + '"' : "") + ">" + kids() + (n.spoiler ? '<span class="pic__veil">SPOILER</span>' : "") + "</div>";
     default: return kids();
@@ -467,13 +491,34 @@ function context(payload){
   (payload.messages || []).forEach(function(m){ c.byId[m.id] = m; });
   return c;
 }
+/* Everything about the export in one place: where it came from, how long it ran, what was saved.
+   The ids copy on a click. Times are the reader's own; the last cell says which zone that is and
+   gives the one time that does not depend on it. */
+function summaryHtml(c, people){
+  var p = c.p, g = p.guild || {}, ch = p.channel || {}, msgs = p.messages || [], st = p.stats || {};
+  var first = msgs.length ? msgs[0].ts : null, last = msgs.length ? msgs[msgs.length - 1].ts : null, when = p.exportedAt || Date.now();
+  var kept = function(one, left){ return one ? one.saved + " saved" + (one.skipped ? ", " + one.skipped + " " + left : "") : ""; };
+  var id = function(v){ return v ? '<button class="tr-id" type="button" data-copy="' + esc(v) + '" title="Copy ID">' + esc(v) + "</button>" : ""; };
+  var cell = function(k, v, extra){ return v ? '<div class="tr-cell"><span>' + k + "</span><b>" + v + "</b>" + (extra || "") + "</div>" : ""; };
+  var files = st.files && st.files.saved + st.files.skipped > 0 ? st.files : null, z = zone();
+  return cell("Server", esc(g.name || "Unknown"), id(g.id)) +
+    cell("Channel", "#" + esc(ch.name || "unknown"), id(ch.id)) +
+    cell("Messages", msgs.length + " from " + plural(people, "person").replace("persons", "people")) +
+    cell("First message", first ? esc(stamp(first)) : "") +
+    cell("Last message", last ? esc(stamp(last)) : "") +
+    cell("Lasted", first && last && last > first ? lasted(last - first) : "") +
+    cell("Images", st.images ? kept(st.images, "not saved") : Object.keys(c.assets).length + " saved") +
+    cell("Files", files ? kept(files, "not saved") : "") +
+    cell("Exported", esc(stamp(when)), '<em>' + esc(utcText(when)) + "</em>") +
+    cell("Times shown in", esc(z.name || z.utc), z.name ? "<em>" + esc(z.utc) + "</em>" : "");
+}
 function render(payload, opt){
   var c = context(payload), o = opt || {};
   var g = payload.guild || {}, ch = payload.channel || {}, msgs = payload.messages || [];
   var counts = {}, order = [];
   msgs.forEach(function(m){ if (!m.author) return; if (!counts[m.author]) { counts[m.author] = 0; order.push(m.author); } counts[m.author]++; });
   order.sort(function(a, b){ return counts[b] - counts[a]; });
-  var savedCount = Object.keys(c.assets).length, icon = src(c, g.icon), brand = payload.brand || null;
+  var icon = src(c, g.icon), brand = payload.brand || null;
 
   return '<div class="tr">' +
     '<header class="tr-bar"><span class="tr-bar__hash">' + ICON.hash + '</span><b class="tr-bar__name">' + esc(ch.name || "transcript") + "</b>" +
@@ -481,12 +526,13 @@ function render(payload, opt){
       '<label class="tr-find">' + ICON.search + '<input id="trFind" type="search" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search this transcript"><span id="trFound"></span></label></header>' +
     '<main class="tr-main">' +
       (o.status === "modified" ? '<div class="tr-warn">' + ICON.alert + "<div><b>This transcript was modified.</b><span>The file no longer matches the signature it was exported with, so what it shows may not be what was said.</span></div></div>" : "") +
-      '<section class="tr-intro">' +
-        (icon ? '<img class="tr-intro__icon" src="' + esc(icon) + '" alt="" data-e="gone">' : '<span class="tr-intro__icon tr-intro__icon--hash">' + ICON.hash + "</span>") +
-        '<h1 class="tr-intro__h">Transcript of #' + esc(ch.name || "channel") + "</h1>" +
-        '<p class="tr-intro__p">' + (g.name ? "From <b>" + esc(g.name) + "</b>. " : "") + "Exported " + esc(fullDate(new Date(payload.exportedAt || Date.now()))) + ".</p>" +
-        (payload.truncated ? '<p class="tr-intro__note">The ' + plural(payload.truncated, "oldest message") + " " + (payload.truncated === 1 ? "was" : "were") + " left out to keep this file within its size limit.</p>" : "") +
-        '<ul class="tr-facts"><li><b>' + msgs.length + "</b> " + (msgs.length === 1 ? "message" : "messages") + "</li><li><b>" + order.length + "</b> " + (order.length === 1 ? "participant" : "participants") + "</li><li><b>" + savedCount + "</b> " + (savedCount === 1 ? "image" : "images") + " saved</li></ul>" +
+      '<section class="tr-top">' +
+        '<div class="tr-top__head">' +
+          (icon ? '<img class="tr-top__icon" src="' + esc(icon) + '" alt="" data-e="gone">' : '<span class="tr-top__icon tr-top__icon--hash">' + ICON.hash + "</span>") +
+          '<div class="tr-top__title"><h1>#' + esc(ch.name || "channel") + "</h1><p>" + (g.name ? esc(g.name) + " \u00b7 " : "") + "Transcript</p></div>" +
+        "</div>" +
+        (payload.truncated ? '<p class="tr-top__note">The ' + plural(payload.truncated, "oldest message") + " " + (payload.truncated === 1 ? "was" : "were") + " left out to keep this file within its size limit.</p>" : "") +
+        '<div class="tr-sum" aria-label="Summary">' + summaryHtml(c, order.length) + "</div>" +
         (order.length ? '<ul class="tr-people">' + order.slice(0, 24).map(function(k){
           var u = userOf(c, k);
           return '<li data-user="' + esc(k) + '" role="button" tabindex="0">' + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
@@ -611,7 +657,7 @@ function wire(el, c){
     var cp = t.closest("[data-copy]");
     if (cp) { copy(cp.getAttribute("data-copy"), "Copied ID"); return; }
     if (t.closest("#trPop")) return;
-    if (t.closest("a") || t.closest("#trFind")) { close(); return; }
+    if (t.closest("a") || t.closest("#trFind")) { close(); if (t.closest("a[download]")) say("Downloading"); return; }
     if (!act(t, e)) close();
   });
   /* Right-click: the things worth copying. A link, a picture's own menu or selected text keeps
@@ -619,7 +665,9 @@ function wire(el, c){
   el.addEventListener("contextmenu", function(e){
     var t = e.target, sel = root.getSelection ? String(root.getSelection()) : "";
     if (e.shiftKey || sel || t.closest("a, input, #trZoom")) return;
-    var who = t.closest("[data-user]"), msg = t.closest("[data-mid]"), items = [];
+    /* On a person: only what is about that person. Anywhere else in a message: only what is about
+       the message. Never both at once. */
+    var who = t.closest("[data-user]"), msg = who ? null : t.closest("[data-mid]"), items = [];
     if (who) {
       var key = who.getAttribute("data-user"), u = c.users[key];
       if (u) {

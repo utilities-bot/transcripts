@@ -266,10 +266,66 @@ describe("saving pictures into the file", () => {
   it("embeds them as data, so the file no longer depends on Discord's links", async () => {
     const { payload, wanted } = collected();
     const stats = await embedAssets(payload, wanted, { fetch: fakeFetch() });
+    const pictures = wanted.filter((item) => !item.file);
 
     assert.equal(stats.skipped, 0);
-    assert.equal(stats.saved, wanted.length);
-    for (const item of wanted) assert.match(payload.assets[item.url], /^data:image\/png;base64,/);
+    assert.equal(stats.saved, pictures.length);
+    for (const item of pictures) assert.match(payload.assets[item.url], /^data:image\/png;base64,/);
+  });
+
+  /** Messages first, then pictures, then files: a file is the last thing asked for. */
+  it("saves a file that is not a picture too, after every picture, as plain bytes", async () => {
+    const calls = [];
+    const { payload, wanted } = collected();
+    const stats = await embedAssets(payload, wanted, { fetch: fakeFetch(calls), concurrency: 1 });
+    const csv = wanted.find((item) => item.url.includes("orders-export.csv"));
+
+    assert.deepEqual(wanted.map((item) => Boolean(item.file)), [...wanted.map((item) => Boolean(item.file))].sort(), "files are last in line");
+    assert.ok(calls.findIndex((url) => url.includes(".csv")) > calls.findIndex((url) => url.includes("banner.png")), "asked for after the last picture");
+    // Whatever Discord called it, it is stored as bytes: nothing saved can be opened as a page.
+    assert.match(payload.assets[csv.url], /^data:application\/octet-stream;base64,/);
+    assert.equal(Buffer.from(payload.assets[csv.url].split(",")[1], "base64").toString(), "order,amount\nUT-48213,4.99\nUT-48213,4.99\n");
+    assert.deepEqual(stats.files, { saved: 1, skipped: 1, bytes: 41 }, "the video is gone from Discord, and is counted as not saved");
+  });
+
+  /**
+   * The point of a size limit is bandwidth as much as storage. A file's size
+   * comes with the message, so one that cannot fit is never requested at all.
+   */
+  it("never asks Discord for a file that is too big for the room left", async () => {
+    const calls = [];
+    const fetcher = (input) => {
+      calls.push(String(input));
+
+      return Promise.resolve(new Response(Buffer.alloc(10), { headers: { "content-type": "application/pdf" } }));
+    };
+    const payload = { assets: {} };
+    const stats = await embedAssets(
+      payload,
+      [
+        { url: "https://cdn.discordapp.com/attachments/1/2/manual.pdf", from: "https://cdn.discordapp.com/attachments/1/2/manual.pdf", tier: 5, file: true, size: 900_000 },
+        { url: "https://cdn.discordapp.com/attachments/1/3/note.txt", from: "https://cdn.discordapp.com/attachments/1/3/note.txt", tier: 5, file: true, size: 10 },
+      ],
+      { fetch: fetcher, maxTotalBytes: 50_000 },
+    );
+
+    assert.deepEqual(calls, ["https://cdn.discordapp.com/attachments/1/3/note.txt"]);
+    assert.deepEqual(stats.files, { saved: 1, skipped: 1, bytes: 10 });
+  });
+
+  /** A picture Discord says is too large is dropped at the headers; its body is never read. */
+  it("lets go of a picture's body when its announced size is already too large", async () => {
+    let read = false;
+    const body = new ReadableStream({ pull() { read = true; }, cancel() {} }, { highWaterMark: 0 });
+    const fetcher = () => Promise.resolve(new Response(body, { headers: { "content-type": "image/png", "content-length": "9000000" } }));
+    const stats = await embedAssets(
+      { assets: {} },
+      [{ url: "https://cdn.discordapp.com/attachments/1/2/big.png", from: "https://cdn.discordapp.com/attachments/1/2/big.png", tier: 4 }],
+      { fetch: fetcher, maxTotalBytes: 100_000 },
+    );
+
+    assert.equal(stats.saved, 0);
+    assert.equal(read, false, "not one byte of the body was pulled");
   });
 
   it("asks Discord for a smaller copy of a picture wider than it is ever drawn", async () => {
@@ -297,7 +353,7 @@ describe("saving pictures into the file", () => {
   it("saves only as many posted pictures as it is allowed, and every avatar and emoji", async () => {
     const calls = [];
     const { payload, wanted } = collected();
-    const posted = wanted.filter((item) => item.tier >= 4);
+    const posted = wanted.filter((item) => item.tier >= 4 && !item.file);
     const stats = await embedAssets(payload, wanted, { fetch: fakeFetch(calls), maxPictures: 2 });
 
     assert.ok(posted.length > 2, "the sample has more pictures than the cap");
@@ -429,6 +485,49 @@ describe("the viewer", () => {
     }
   });
 
+  it("offers a saved file as a download from the transcript itself, and says when one was not saved", async () => {
+    const { payload, wanted } = collected();
+    await embedAssets(payload, wanted, { fetch: fakeFetch() });
+    const html = viewer.render(payload, {});
+
+    assert.match(html, /<a class="file__name" href="data:application\/octet-stream;base64,[A-Za-z0-9+\/=]+" download="orders-export\.csv">/);
+    assert.match(html, /Saved in this transcript/);
+    assert.match(html, /screen-recording\.mp4<\/a><span class="file__size">[^<]*Not saved, the link may have expired/);
+  });
+
+  /** Only plain bytes may sit behind a download link: a page smuggled in as a "file" is refused. */
+  it("refuses a saved file that is not plain bytes", () => {
+    const { payload } = collected();
+    const csv = payload.messages.flatMap((message) => message.attachments ?? []).find((file) => file.name === "orders-export.csv");
+    payload.assets[csv.url] = "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==";
+
+    assert.equal(viewer.render(payload, {}).includes("data:text/html"), false);
+  });
+
+  /**
+   * Everything about the export in one place, and the one time that does not
+   * depend on where the reader is: every other time on the page is local.
+   */
+  it("opens with a summary: where it is from, how long it ran, what was saved, and the time zone", async () => {
+    const { payload, wanted } = collected();
+    const got = await embedAssets(payload, wanted, { fetch: fakeFetch() });
+    payload.stats = { images: { saved: got.saved, skipped: got.skipped }, files: got.files };
+    const html = viewer.render(payload, {});
+
+    for (const piece of [
+      'data-copy="1374147741403320350"',
+      'data-copy="1489260905819541635"',
+      "<span>Messages</span><b>12 from 3 people</b>",
+      "<span>Lasted</span><b>1d",
+      "<span>Images</span><b>10 saved</b>",
+      "<span>Files</span><b>1 saved, 1 not saved</b>",
+      "<span>Times shown in</span>",
+    ]) {
+      assert.ok(html.includes(piece), `missing ${piece}`);
+    }
+    assert.match(html, /<em>\d{4}-\d\d-\d\d \d\d:\d\d UTC<\/em>/);
+  });
+
   it("shows a saved picture from the file, not from Discord", async () => {
     const { payload, wanted } = collected();
     await embedAssets(payload, wanted, { fetch: fakeFetch() });
@@ -500,6 +599,9 @@ describe("createTranscript", () => {
 
     assert.equal(result.messageCount, 12);
     assert.equal(result.images.skipped, 0);
+    assert.deepEqual(result.files, { saved: 1, skipped: 1, bytes: 41 });
+    assert.match(result.html, /^    Images    10 saved\n    Files     1 saved, 1 left as links$/m);
+    assert.deepEqual(readTranscript(result.html).payload.stats, { images: { saved: 10, skipped: 0 }, files: { saved: 1, skipped: 1 } });
     assert.equal(result.participants[0].username, "mira.k");
     assert.equal(verifyTranscript(result.html), "intact");
   });

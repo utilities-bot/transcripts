@@ -227,6 +227,11 @@ export function collectTranscript(messages, context = {}) {
         h: record.h,
         type: text(item.contentType),
       });
+    } else {
+      // Anything else somebody uploaded: saved as it is, after every picture.
+      // Its size is already known, which is what lets the downloader leave a
+      // file that cannot fit without asking Discord for a single byte of it.
+      want(record.url, 5, record.url, { file: true, size: record.size });
     }
 
     return record;

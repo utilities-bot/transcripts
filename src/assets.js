@@ -9,7 +9,14 @@
 // sees go first (avatars, emoji), then pictures in the order they were posted.
 // No single picture may take most of the budget: one that is too heavy is
 // asked for again at half the width, and half again, before it is given up on.
+// Files that are not pictures come last, saved exactly as they were uploaded.
 // What does not fit is counted and left as a link.
+//
+// Bandwidth is part of the budget. A file's size is known before it is asked
+// for, so one that cannot fit is never requested; a picture whose size Discord
+// announces as too large is dropped at the headers, before its body is read;
+// and as the room runs out, fewer are fetched at once, so little is downloaded
+// only to be thrown away.
 
 import { isDiscordUrl, sizedUrl } from "./urls.js";
 
@@ -43,15 +50,19 @@ const FULL_BELOW = 1_500;
 /** The collector's tiers from here up are pictures somebody posted; below are faces and icons. */
 const PICTURE_TIER = 4;
 
+/** What a picture is assumed to weigh before any has been saved, when deciding how many to fetch at once. */
+const TYPICAL_PICTURE_BYTES = 60_000;
+
 function picturesBefore(batch, index) {
-  return batch.slice(0, index).filter((item) => item.tier >= PICTURE_TIER).length;
+  return batch.slice(0, index).filter((item) => !item.file && item.tier >= PICTURE_TIER).length;
 }
 
 /**
  * @param {object} payload the collected transcript; its `assets` map is filled in
- * @param {readonly { url: string, from: string, tier: number, w?: number, h?: number, type?: string, draw?: number }[]} wanted in download order
+ * @param {readonly { url: string, from: string, tier: number, w?: number, h?: number, type?: string, draw?: number, file?: boolean, size?: number }[]} wanted in download order
  * @param {{ fetch?: typeof fetch, maxTotalBytes?: number, maxSingleBytes?: number, maxPictures?: number, maxImageWidth?: number, timeoutMs?: number, concurrency?: number }} [options]
- * @returns {Promise<{ saved: number, skipped: number, bytes: number }>}
+ * @returns {Promise<{ saved: number, skipped: number, bytes: number, files: { saved: number, skipped: number, bytes: number } }>}
+ *   pictures counted at the top level, other files under `files`
  */
 export async function embedAssets(payload, wanted, options = {}) {
   const fetcher = options.fetch ?? globalThis.fetch;
@@ -66,7 +77,10 @@ export async function embedAssets(payload, wanted, options = {}) {
   // Avatars, emoji, stickers and small icons are not counted — a transcript with faces missing
   // reads as broken, and together they weigh less than one screenshot.
   const maxPictures = options.maxPictures ?? Number.POSITIVE_INFINITY;
-  const stats = { saved: 0, skipped: 0, bytes: 0 };
+  const stats = { saved: 0, skipped: 0, bytes: 0, files: { saved: 0, skipped: 0, bytes: 0 } };
+  /** Where one item is counted: pictures at the top, other files under `files`. */
+  const tally = (item) => (item.file ? stats.files : stats);
+  const used = () => stats.bytes + stats.files.bytes;
   let pictures = 0;
 
   /**
@@ -75,7 +89,7 @@ export async function embedAssets(payload, wanted, options = {}) {
    * picture may fit at a smaller size and a missing one will not.
    * Never throws: a missing picture is not a failed transcript.
    */
-  async function download(from, limit) {
+  async function download(from, limit, anyType = false) {
     if (!isDiscordUrl(from)) return null;
 
     try {
@@ -86,9 +100,18 @@ export async function embedAssets(payload, wanted, options = {}) {
         return null;
       }
 
-      const type = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-      if (!EMBEDDABLE.has(type)) return null;
-      if (Number(response.headers.get("content-length") ?? 0) > limit) return "heavy";
+      const said = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+      // A file is kept as plain bytes whatever Discord calls it, so nothing saved can be
+      // opened by a browser as a page; a picture has to be one of the formats above.
+      const type = anyType ? "application/octet-stream" : said;
+      const wrong = !anyType && !EMBEDDABLE.has(said);
+      const heavy = Number(response.headers.get("content-length") ?? 0) > limit;
+      if (wrong || heavy) {
+        // Decided from the headers alone: the body is let go, not downloaded.
+        await response.body?.cancel().catch(() => undefined);
+
+        return wrong ? null : "heavy";
+      }
 
       const bytes = Buffer.from(await response.arrayBuffer());
       if (bytes.length === 0) return null;
@@ -101,6 +124,14 @@ export async function embedAssets(payload, wanted, options = {}) {
 
   /** A picture at the largest size that fits `limit`, trying narrower copies of a heavy one. */
   async function fetchOne(item, limit) {
+    if (item.file) {
+      // Its size came with the message. Too big for the room left: not even asked for.
+      if (Number(item.size) > limit) return null;
+      const file = await download(item.from, limit, true);
+
+      return file === "heavy" ? null : file;
+    }
+
     const resizable = Number(item.w) > 0 && Number(item.h) > 0;
     const widest = Math.min(maxWidth, item.draw ?? Number.POSITIVE_INFINITY);
     let asked = null;
@@ -133,38 +164,46 @@ export async function embedAssets(payload, wanted, options = {}) {
   // Downloaded a few at a time, but *admitted* strictly in order: which
   // pictures make it into a full transcript must not depend on which request
   // happened to finish first.
-  const size = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
-  for (let start = 0; start < wanted.length; start += size) {
-    const room = maxTotal - stats.bytes;
+  const most = Math.max(1, options.concurrency ?? DEFAULT_CONCURRENCY);
+  for (let start = 0; start < wanted.length; ) {
+    const room = maxTotal - used();
     // Full: everything still waiting is left out without being asked for.
     if (room < FULL_BELOW) {
-      stats.skipped += wanted.length - start;
+      for (const item of wanted.slice(start)) tally(item).skipped += 1;
       break;
     }
 
+    // As many at once as are likely to fit. With plenty of room that is all of them; near the
+    // end it comes down to one at a time, so a picture is not fetched just to be turned away.
+    const typical = stats.saved > 0 ? stats.bytes / stats.saved : TYPICAL_PICTURE_BYTES;
+    const size = Math.max(1, Math.min(most, Math.floor(room / Math.max(typical, 1))));
     const batch = wanted.slice(start, start + size);
-    const limit = Math.min(maxSingle, room);
+    start += batch.length;
+
     const results = await Promise.all(
       batch.map((item, index) => {
         // Past the cap nothing is even downloaded. Counted by position, so it is the earliest
         // pictures that are kept whatever order the downloads finish in.
-        if (item.tier >= PICTURE_TIER && pictures + picturesBefore(batch, index) >= maxPictures) return null;
+        if (!item.file && item.tier >= PICTURE_TIER && pictures + picturesBefore(batch, index) >= maxPictures) return null;
 
-        return fetchOne(item, limit);
+        // A picture may take a share of the room; a file, coming last, may take what is left.
+        return fetchOne(item, item.file ? room : Math.min(maxSingle, room));
       }),
     );
 
     results.forEach((result, index) => {
-      if (result === null || stats.bytes + result.bytes.length > maxTotal) {
-        stats.skipped += 1;
+      const item = batch[index];
+      const into = tally(item);
+      if (result === null || used() + result.bytes.length > maxTotal) {
+        into.skipped += 1;
 
         return;
       }
 
-      payload.assets[batch[index].url] = `data:${result.type};base64,${result.bytes.toString("base64")}`;
-      if (batch[index].tier >= PICTURE_TIER) pictures += 1;
-      stats.saved += 1;
-      stats.bytes += result.bytes.length;
+      payload.assets[item.url] = `data:${result.type};base64,${result.bytes.toString("base64")}`;
+      if (!item.file && item.tier >= PICTURE_TIER) pictures += 1;
+      into.saved += 1;
+      into.bytes += result.bytes.length;
     });
   }
 

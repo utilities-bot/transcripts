@@ -42,7 +42,7 @@ export interface CreateTranscriptOptions {
    * default, beyond the picture budget below.
    */
   readonly maxFileBytes?: number;
-  /** Download pictures into the file. Default true. */
+  /** Download pictures and files into the file. Default true. */
   readonly images?: boolean;
   /** How pictures are downloaded. Default the global `fetch`. Only Discord's hosts are ever asked. */
   readonly fetch?: typeof fetch;
@@ -71,7 +71,10 @@ export interface CreatedTranscript {
   readonly truncated: number;
   /** Busiest first. */
   readonly participants: readonly TranscriptParticipant[];
+  /** Pictures saved into the file, and left as links. */
   readonly images: ImageStats;
+  /** Other uploaded files saved into the file, and left as links. They give way before pictures do. */
+  readonly files: ImageStats;
 }
 
 /** The packed form a file carries. */
@@ -103,6 +106,10 @@ export interface WantedAsset {
   readonly type?: string;
   /** The widest it is ever saved, when it is only drawn small. */
   readonly draw?: number;
+  /** An uploaded file that is not a picture: saved as it is, last. */
+  readonly file?: boolean;
+  /** Its size in bytes, known before it is asked for. */
+  readonly size?: number;
 }
 
 /** Exports a discord.js text channel or thread as one self-contained HTML file. */
@@ -151,7 +158,7 @@ export function embedAssets(
     readonly timeoutMs?: number;
     readonly concurrency?: number;
   },
-): Promise<ImageStats>;
+): Promise<ImageStats & { readonly files: ImageStats }>;
 
 export function buildHtml(
   payload: TranscriptPayload,

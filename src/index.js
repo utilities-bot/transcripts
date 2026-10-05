@@ -69,7 +69,7 @@ async function history(channel, limit) {
  * @param {readonly object[]} [options.messages] messages already in hand, oldest first; skips fetching
  * @param {string} [options.signingKey] Ed25519 private key (base64 PKCS#8 or PEM); unsigned without one
  * @param {number} [options.maxFileBytes] the largest the whole file may be; pictures, then the oldest messages, give way to fit
- * @param {boolean} [options.images] download pictures into the file; default true
+ * @param {boolean} [options.images] download pictures and files into the file; default true
  * @param {typeof fetch} [options.fetch] how pictures are downloaded; default the global fetch
  * @param {number} [options.maxTotalBytes] budget for all pictures together
  * @param {number} [options.maxSingleBytes] the largest single picture
@@ -80,7 +80,14 @@ async function history(channel, limit) {
 export async function createTranscript(channel, options = {}) {
   const all = options.messages ?? (await history(channel, options.limit === undefined ? 1000 : options.limit));
   const maxFile = options.maxFileBytes;
-  const none = { saved: 0, skipped: 0, bytes: 0 };
+  const none = () => ({ saved: 0, skipped: 0, bytes: 0, files: { saved: 0, skipped: 0, bytes: 0 } });
+  /** What the summary at the top of the file and the page's own summary both say. */
+  const record = (payload, got) => {
+    payload.stats = {
+      images: { saved: got.saved, skipped: got.skipped },
+      files: { saved: got.files.saved, skipped: got.files.skipped },
+    };
+  };
   const collect = (messages, truncated) => {
     const made = collectTranscript(messages, { channel, guild: channel?.guild, brand: options.brand });
     if (truncated > 0) made.payload.truncated = truncated;
@@ -93,15 +100,17 @@ export async function createTranscript(channel, options = {}) {
   // pictures at all — the recent end of a ticket is the part somebody needs.
   let dropped = 0;
   let made = collect(all, 0);
-  let bare = sizeOf(buildHtml(made.payload, { signingKey: options.signingKey, stats: none }));
+  record(made.payload, none());
+  let bare = sizeOf(buildHtml(made.payload, { signingKey: options.signingKey }));
   while (maxFile !== undefined && bare > maxFile && all.length - dropped > 1) {
     dropped = Math.min(all.length - 1, dropped + Math.max(1, Math.ceil((all.length - dropped) * TRIM_STEP)));
     made = collect(all.slice(dropped), dropped);
-    bare = sizeOf(buildHtml(made.payload, { signingKey: options.signingKey, stats: none }));
+    record(made.payload, none());
+    bare = sizeOf(buildHtml(made.payload, { signingKey: options.signingKey }));
   }
   const { payload, wanted, participants } = made;
 
-  // Then the pictures, with whatever room the words left.
+  // Then the pictures, and after them the files, with whatever room the words left.
   const room =
     maxFile === undefined
       ? options.maxTotalBytes
@@ -111,7 +120,7 @@ export async function createTranscript(channel, options = {}) {
         );
   const images =
     options.images === false
-      ? none
+      ? none()
       : await embedAssets(payload, wanted, {
           fetch: options.fetch,
           maxTotalBytes: room,
@@ -121,16 +130,20 @@ export async function createTranscript(channel, options = {}) {
         });
 
   // The estimate above is close, not exact. If the file still came out over,
-  // the pictures added last are taken back out until it is under.
-  let html = buildHtml(payload, { signingKey: options.signingKey, stats: images });
+  // what was added last is taken back out until it is under — files before
+  // pictures, since that is the order they give way in.
+  record(payload, images);
+  let html = buildHtml(payload, { signingKey: options.signingKey });
   const kept = Object.keys(payload.assets);
   while (maxFile !== undefined && sizeOf(html) > maxFile && kept.length > 0) {
     const last = kept.pop();
-    images.bytes -= Math.floor((payload.assets[last].length * 3) / 4);
-    images.saved -= 1;
-    images.skipped += 1;
+    const into = payload.assets[last].startsWith("data:application/octet-stream") ? images.files : images;
+    into.bytes -= Math.floor((payload.assets[last].length * 3) / 4);
+    into.saved -= 1;
+    into.skipped += 1;
     delete payload.assets[last];
-    html = buildHtml(payload, { signingKey: options.signingKey, stats: images });
+    record(payload, images);
+    html = buildHtml(payload, { signingKey: options.signingKey });
   }
 
   return {
@@ -140,7 +153,10 @@ export async function createTranscript(channel, options = {}) {
     /** Older messages left out to fit `maxFileBytes`. */
     truncated: dropped,
     participants,
-    images,
+    /** Pictures saved and left out. */
+    images: { saved: images.saved, skipped: images.skipped, bytes: images.bytes },
+    /** Other files saved and left out. */
+    files: images.files,
   };
 }
 
