@@ -491,21 +491,14 @@ function context(payload){
   (payload.messages || []).forEach(function(m){ c.byId[m.id] = m; });
   return c;
 }
-/* The top of the page says the ticket in a sentence's worth of numbers and when it ran. The
-   particulars somebody goes looking for later (ids, exact times, what was skipped) are one
-   click away under Details, as a plain two-column list. Every time is the reader's own; the
-   time zone is named, and the moment the transcript was made is also given in UTC. */
-function topFacts(c, people){
-  var p = c.p, msgs = p.messages || [], st = p.stats || {}, pics = st.images ? st.images.saved : Object.keys(c.assets).length, files = st.files ? st.files.saved : 0;
-  var one = function(n, word, many){ return "<span><b>" + n + "</b> " + (n === 1 ? word : many || word + "s") + "</span>"; };
-  return one(msgs.length, "message") + one(people, "person", "people") + (pics ? one(pics, "image") : "") + (files ? one(files, "file") : "");
-}
-function topWhen(c){
-  var msgs = c.p.messages || [];
-  if (!msgs.length) return "";
-  var a = new Date(msgs[0].ts), b = new Date(msgs[msgs.length - 1].ts), span = b - a;
-  var text = F_BOTH.format(a) + (span > 0 ? " \u2013 " + (sameDay(a, b) ? F_TIME.format(b) : F_BOTH.format(b)) : "");
-  return "<span>" + esc(text) + "</span>" + (span > 0 ? "<span>" + lasted(span) + "</span>" : "");
+/* The top of the page is two lines: the channel, and one grey line saying where it is from, how
+   much was said and for how long. Everything else — who took part, ids, exact times, what was
+   skipped — is behind Details, so the conversation starts straight away. Every time is the
+   reader's own; the time zone is named there, with the moment the transcript was made in UTC. */
+function topLine(c){
+  var p = c.p, g = p.guild || {}, msgs = p.messages || [];
+  var span = msgs.length > 1 ? msgs[msgs.length - 1].ts - msgs[0].ts : 0;
+  return (g.name ? "<span>" + esc(g.name) + "</span>" : "") + "<span>" + plural(msgs.length, "message") + "</span>" + (span > 0 ? "<span>" + lasted(span) + "</span>" : "");
 }
 function detailsHtml(c, people){
   var p = c.p, g = p.guild || {}, ch = p.channel || {}, msgs = p.messages || [], st = p.stats || {};
@@ -530,7 +523,7 @@ function render(payload, opt){
   var counts = {}, order = [];
   msgs.forEach(function(m){ if (!m.author) return; if (!counts[m.author]) { counts[m.author] = 0; order.push(m.author); } counts[m.author]++; });
   order.sort(function(a, b){ return counts[b] - counts[a]; });
-  var icon = src(c, g.icon), brand = payload.brand || null;
+  var brand = payload.brand || null;
 
   return '<div class="tr">' +
     '<header class="tr-bar"><span class="tr-bar__hash">' + ICON.hash + '</span><b class="tr-bar__name">' + esc(ch.name || "transcript") + "</b>" +
@@ -539,18 +532,14 @@ function render(payload, opt){
     '<main class="tr-main">' +
       (o.status === "modified" ? '<div class="tr-warn">' + ICON.alert + "<div><b>This transcript was modified.</b><span>The file no longer matches the signature it was exported with, so what it shows may not be what was said.</span></div></div>" : "") +
       '<section class="tr-top">' +
-        '<div class="tr-top__head">' +
-          (icon ? '<img class="tr-top__icon" src="' + esc(icon) + '" alt="" data-e="gone">' : '<span class="tr-top__icon tr-top__icon--hash">' + ICON.hash + "</span>") +
-          '<div class="tr-top__title"><h1>#' + esc(ch.name || "channel") + "</h1>" + (g.name ? "<p>" + esc(g.name) + "</p>" : "") + "</div>" +
-        "</div>" +
-        '<p class="tr-top__facts">' + topFacts(c, order.length) + "</p>" +
-        '<p class="tr-top__when">' + topWhen(c) + "</p>" +
+        "<h1>#" + esc(ch.name || "channel") + "</h1>" +
+        '<details class="tr-more"><summary><span class="tr-top__line">' + topLine(c) + '</span><span class="tr-more__btn">Details' + ICON.chevron + "</span></summary>" +
+          (order.length ? '<ul class="tr-people">' + order.slice(0, 24).map(function(k){
+            var u = userOf(c, k);
+            return '<li data-user="' + esc(k) + '" role="button" tabindex="0">' + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
+          }).join("") + (order.length > 24 ? "<li><span class=\"tr-people__n\">and " + (order.length - 24) + " more</span></li>" : "") + "</ul>" : "") +
+          '<dl class="tr-list">' + detailsHtml(c, order.length) + "</dl></details>" +
         (payload.truncated ? '<p class="tr-top__note">The ' + plural(payload.truncated, "oldest message") + " " + (payload.truncated === 1 ? "was" : "were") + " skipped to keep this file within its size limit.</p>" : "") +
-        (order.length ? '<ul class="tr-people">' + order.slice(0, 24).map(function(k){
-          var u = userOf(c, k);
-          return '<li data-user="' + esc(k) + '" role="button" tabindex="0">' + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
-        }).join("") + (order.length > 24 ? "<li><span class=\"tr-people__n\">and " + (order.length - 24) + " more</span></li>" : "") + "</ul>" : "") +
-        '<details class="tr-more"><summary>' + ICON.chevron + '<span>Details</span></summary><dl class="tr-list">' + detailsHtml(c, order.length) + "</dl></details>" +
       "</section>" +
       '<div class="tr-log">' + (msgs.length ? messagesHtml(c) : '<p class="tr-empty">There are no messages in this transcript.</p>') + "</div>" +
       '<footer class="tr-foot"><span>End of transcript</span>' + (brand && brand.name ? "<span>Transcript by " + (isHttp(brand.url) ? '<a href="' + esc(brand.url) + '" target="_blank" rel="noopener noreferrer">' + esc(brand.name) + "</a>" : esc(brand.name)) + "</span>" : "") + "</footer>" +

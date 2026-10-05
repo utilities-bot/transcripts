@@ -56,30 +56,20 @@ html,body{margin:0;background:#323339}
 .tr-error svg{width:48px;height:48px;color:var(--red)}
 .tr-error b{color:var(--head);font-size:20px}
 
-/* ---- the top of the page: where this is from, then a summary of the export */
-.tr-top{margin:20px 16px 4px}
-.tr-top__head{display:flex;align-items:center;gap:14px}
-.tr-top__icon{flex:none;display:block;width:52px;height:52px;border-radius:50%;object-fit:cover;background:var(--bg-2)}
-.tr-top__icon--hash{display:flex;align-items:center;justify-content:center;background:#44454c;color:#fff}
-.tr-top__icon--hash svg{width:32px;height:32px}
-.tr-top__title{min-width:0}
-.tr-top__title h1{margin:0;color:var(--head);font-size:24px;line-height:30px;font-weight:700;overflow-wrap:anywhere}
-.tr-top__title p{margin:1px 0 0;color:var(--muted);font-size:15px}
-/* the ticket in numbers, then when it ran: plain lines, separated by dots, no boxes */
-.tr-top__facts,.tr-top__when{display:flex;flex-wrap:wrap;margin:0}
-.tr-top__facts{margin-top:14px;color:var(--text);font-size:15px}
-.tr-top__facts b{color:var(--head);font-weight:600}
-.tr-top__when{margin-top:2px;color:var(--muted);font-size:14px}
-.tr-top__facts span+span::before,.tr-top__when span+span::before{content:"\00b7";margin:0 8px;color:var(--faint)}
-.tr-top__note{margin:10px 0 0;color:var(--yellow);font-size:14px}
-/* the particulars, folded away: a two-column list with a hairline between rows */
-.tr-more{margin-top:12px;max-width:760px}
-.tr-more summary{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:14px;font-weight:500;cursor:pointer;list-style:none;user-select:none}
+/* ---- the top of the page: the channel, one grey line, and Details */
+.tr-top{margin:20px 16px 0}
+.tr-top h1{margin:0;color:var(--head);font-size:24px;line-height:30px;font-weight:700;overflow-wrap:anywhere}
+.tr-more summary{display:flex;flex-wrap:wrap;align-items:center;column-gap:12px;margin-top:2px;color:var(--muted);font-size:15px;line-height:22px;cursor:pointer;list-style:none;user-select:none}
 .tr-more summary::-webkit-details-marker{display:none}
-.tr-more summary:hover{color:var(--head)}
-.tr-more summary svg{width:18px;height:18px;transform:rotate(-90deg)}
-.tr-more[open] summary svg{transform:none}
-.tr-list{margin:8px 0 0;padding:0}
+.tr-top__line{display:flex;flex-wrap:wrap}
+.tr-top__line span+span::before{content:"\00b7";margin:0 7px;color:var(--faint)}
+.tr-more__btn{display:inline-flex;align-items:center;gap:2px;color:var(--link);font-size:14px;font-weight:500}
+.tr-more__btn svg{width:16px;height:16px}
+.tr-more summary:hover .tr-more__btn{text-decoration:underline}
+.tr-more[open] .tr-more__btn svg{transform:rotate(180deg)}
+.tr-top__note{margin:8px 0 0;color:var(--yellow);font-size:14px}
+/* the particulars: who took part, then a two-column list with a hairline between rows */
+.tr-list{margin:12px 0 0;padding:0;max-width:760px}
 .tr-list>div{display:flex;gap:16px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
 .tr-list dt{flex:none;width:150px;color:var(--muted)}
 .tr-list dd{flex:1;min-width:0;margin:0;color:var(--text);overflow-wrap:anywhere}
@@ -316,9 +306,8 @@ a.btn:hover{background:#4e4f57}
   .tr-bar{padding:0 12px}
   .tr-bar__sep,.tr-bar__topic{display:none}
   .tr-find{width:132px}
-  .tr-top{margin:16px 12px 4px}
-  .tr-top__icon{width:44px;height:44px}
-  .tr-top__title h1{font-size:20px;line-height:26px}
+  .tr-top{margin:16px 12px 0}
+  .tr-top h1{font-size:20px;line-height:26px}
   .tr-list>div{flex-direction:column;gap:1px}
   .tr-list dt{width:auto;font-size:12px}
   .day{margin-left:12px;margin-right:12px}
