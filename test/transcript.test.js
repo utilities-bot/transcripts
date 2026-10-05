@@ -122,32 +122,45 @@ describe("the file", () => {
     const html = buildHtml(collected().payload, { stats: { saved: 3, skipped: 1 } });
     const lines = html.split("\n");
 
-    assert.deepEqual(lines.slice(0, 7), [
-      "<Server-Info>",
-      "    Server: Utilities Support (1374147741403320350)",
-      "    Channel: ticket-0007 (1489260905819541635)",
-      "    Messages: 12",
-      "    Images Saved: 3",
-      "    Images Skipped: 1 (due to the file size limit, or no longer on Discord.)",
-      lines[6],
+    assert.deepEqual(lines.slice(0, 4), [
+      "<Transcript>",
+      "    Server    Utilities Support (1374147741403320350)",
+      "    Channel   #ticket-0007 (1489260905819541635)",
+      lines[3],
     ]);
-    assert.match(lines[6], /^    Exported: \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
-    assert.deepEqual(lines.slice(7, 12), ["", "<User-Info>", "    6 - mira.k (497562304498368513)", "    3 - Utilities (1359000000000000001)", "    3 - jonas (612345678901234567)"]);
-    assert.deepEqual(lines.slice(12, 14), ["", "<Base-Transcript>"]);
-    assert.equal(lines.length, 16, "nothing else: the last block is one line, then the file ends");
-    assert.equal(html.startsWith("<Server-Info>"), true);
-    assert.match(lines[14], /d\.body\.textContent="";/, "the loader clears the plain text before the transcript is drawn");
+    assert.match(lines[3], /^    Exported  \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
+    assert.deepEqual(lines.slice(4, 14), [
+      "    Messages  12",
+      "    Images    3 saved, 1 left as links",
+      "",
+      "<Participants>",
+      "    6  mira.k     497562304498368513",
+      "    3  Utilities  1359000000000000001",
+      "    3  jonas      612345678901234567",
+      "",
+      "<Payload>",
+      lines[13],
+    ]);
+    assert.equal(lines.length, 15, "nothing else: the last block is one line, then the file ends");
+    assert.equal(html.startsWith("<Transcript>"), true);
+    assert.match(lines[13], /d\.body\.textContent="";/, "the loader clears the plain text before the transcript is drawn");
+  });
+
+  it("says nothing about skipped images when none were", () => {
+    const html = buildHtml(collected().payload, { stats: { saved: 10, skipped: 0 } });
+
+    assert.match(html, /^    Images    10 saved$/m);
   });
 
   /** Those blocks are page content now, so a server or a person named in markup must not become any. */
   it("writes names into the plain blocks as text, never as markup", () => {
     const { payload } = collected();
     payload.guild.name = '<script>alert(1)</script>';
-    payload.users[SAMPLE_IDS.mira].name = "</Server-Info><img src=x onerror=alert(2)>";
-    const head = buildHtml(payload).split("<Base-Transcript>")[0];
+    payload.users[SAMPLE_IDS.mira].name = "</Transcript><img src=x onerror=alert(2)>";
+    const head = buildHtml(payload).split("<Payload>")[0];
 
     assert.equal(/<script|<img/i.test(head), false);
-    assert.match(head, /Server: &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.match(head, /Server    &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
 
   it("is reported modified when its data is edited", () => {
@@ -522,7 +535,7 @@ describe("createTranscript", () => {
     assert.equal(result.messageCount + result.truncated, long.length);
     assert.equal(payload.messages.at(-1).id, long.at(-1).id, "the newest message is the one that is kept");
     assert.equal(payload.truncated, result.truncated);
-    assert.match(result.html, /Messages Skipped: \d+ \(oldest first/);
+    assert.match(result.html, /^    Messages  \d+ \(\d+ older left out to fit the size limit\)$/m);
     assert.match(viewer.render(payload, {}), /left out to keep this file within its size limit/);
   });
 

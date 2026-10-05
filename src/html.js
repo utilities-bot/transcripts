@@ -5,13 +5,13 @@
 //
 // It is laid out to be read as text too, and is nothing but three blocks:
 //
-//   <Server-Info>      where and when, in plain words
-//   <User-Info>        who spoke, and how much
-//   <Base-Transcript>  the transcript's data and the viewer, both gzipped and
-//                      written as base64, and a loader a few lines long
+//   <Transcript>    where and when, as a small table
+//   <Participants>  who spoke, and how much, busiest first
+//   <Payload>       the transcript's data and the viewer, both gzipped and
+//                   written as base64, and a loader a few lines long
 //
 // There is no doctype, head or body written out: the file starts at
-// <Server-Info>. The loader takes the data out of the page, clears the plain
+// <Transcript>. The loader takes the data out of the page, clears the plain
 // text away, and unpacks the viewer in its place.
 
 import { readFileSync } from "node:fs";
@@ -68,38 +68,43 @@ const safe = (value) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
+/** The label column's width: the longest label and two spaces. */
+const LABEL = 10;
+
+/** One row of the first block: a label, padded so the values line up. */
+const row = (label, value) => `    ${label.padEnd(LABEL)}${value}`;
+
 /**
  * The two plain-text blocks at the top of the file.
  *
  * For somebody who opens the file in a text editor, and for Discord's own file
- * preview, which shows its first lines: what this is, without decoding anything.
+ * preview, which shows its first lines: what this is, without decoding
+ * anything. Set out as two small tables — labels on the left, and the people
+ * in columns — so it reads at a glance and lines up in a fixed-width font.
  */
 function summary(payload, stats) {
   const counts = new Map();
   for (const message of payload.messages) {
     if (message.author) counts.set(message.author, (counts.get(message.author) ?? 0) + 1);
   }
-  const people = [...counts.entries()]
+  const spoke = [...counts.entries()]
     .sort(([, a], [, b]) => b - a)
-    .map(([key, count]) => {
-      const user = payload.users[key] ?? {};
-
-      return `    ${String(count)} - ${safe(user.name)} (${safe(user.id)})`;
-    });
+    .map(([key, count]) => ({ count: String(count), name: safe(payload.users[key]?.name), id: safe(payload.users[key]?.id) }));
+  const widest = (field) => Math.max(0, ...spoke.map((one) => one[field].length));
+  const [countWidth, nameWidth] = [widest("count"), Math.min(32, widest("name"))];
   const exported = new Date(payload.exportedAt).toISOString().replace("T", " ").slice(0, 16);
+  const skipped = stats?.skipped ?? 0;
 
   return [
-    "<Server-Info>",
-    `    Server: ${safe(payload.guild.name)} (${safe(payload.guild.id)})`,
-    `    Channel: ${safe(payload.channel.name)} (${safe(payload.channel.id)})`,
-    `    Messages: ${String(payload.messages.length)}`,
-    ...(payload.truncated ? [`    Messages Skipped: ${String(payload.truncated)} (oldest first, due to the file size limit.)`] : []),
-    `    Images Saved: ${String(stats?.saved ?? 0)}`,
-    `    Images Skipped: ${String(stats?.skipped ?? 0)} (due to the file size limit, or no longer on Discord.)`,
-    `    Exported: ${exported} UTC`,
+    "<Transcript>",
+    row("Server", `${safe(payload.guild.name)} (${safe(payload.guild.id)})`),
+    row("Channel", `#${safe(payload.channel.name)} (${safe(payload.channel.id)})`),
+    row("Exported", `${exported} UTC`),
+    row("Messages", String(payload.messages.length) + (payload.truncated ? ` (${String(payload.truncated)} older left out to fit the size limit)` : "")),
+    row("Images", `${String(stats?.saved ?? 0)} saved` + (skipped > 0 ? `, ${String(skipped)} left as links` : "")),
     "",
-    "<User-Info>",
-    ...people,
+    "<Participants>",
+    ...spoke.map((one) => `    ${one.count.padStart(countWidth)}  ${one.name.padEnd(nameWidth)}  ${one.id}`),
   ].join("\n");
 }
 
@@ -114,7 +119,7 @@ export function buildHtml(payload, options = {}) {
   return [
     summary(payload, options.stats),
     "",
-    "<Base-Transcript>",
+    "<Payload>",
     // Base64 and a handful of fixed keys: nothing in either block can close its element.
     `    <script id="transcript-data" type="application/json">${JSON.stringify(envelope)}</script>` +
       `<script id="transcript-viewer" type="application/octet-stream">${VIEWER}</script>` +
