@@ -491,26 +491,38 @@ function context(payload){
   (payload.messages || []).forEach(function(m){ c.byId[m.id] = m; });
   return c;
 }
-/* Everything about the export in one place: where it came from, how long it ran, what was saved.
-   The ids copy on a click. Times are the reader's own; the last cell says which zone that is and
-   gives the one time that does not depend on it. */
-function summaryHtml(c, people){
+/* The top of the page says the ticket in a sentence's worth of numbers and when it ran. The
+   particulars somebody goes looking for later (ids, exact times, what was skipped) are one
+   click away under Details, as a plain two-column list. Every time is the reader's own; the
+   time zone is named, and the moment the transcript was made is also given in UTC. */
+function topFacts(c, people){
+  var p = c.p, msgs = p.messages || [], st = p.stats || {}, pics = st.images ? st.images.saved : Object.keys(c.assets).length, files = st.files ? st.files.saved : 0;
+  var one = function(n, word, many){ return "<span><b>" + n + "</b> " + (n === 1 ? word : many || word + "s") + "</span>"; };
+  return one(msgs.length, "message") + one(people, "person", "people") + (pics ? one(pics, "image") : "") + (files ? one(files, "file") : "");
+}
+function topWhen(c){
+  var msgs = c.p.messages || [];
+  if (!msgs.length) return "";
+  var a = new Date(msgs[0].ts), b = new Date(msgs[msgs.length - 1].ts), span = b - a;
+  var text = F_BOTH.format(a) + (span > 0 ? " \u2013 " + (sameDay(a, b) ? F_TIME.format(b) : F_BOTH.format(b)) : "");
+  return "<span>" + esc(text) + "</span>" + (span > 0 ? "<span>" + lasted(span) + "</span>" : "");
+}
+function detailsHtml(c, people){
   var p = c.p, g = p.guild || {}, ch = p.channel || {}, msgs = p.messages || [], st = p.stats || {};
-  var first = msgs.length ? msgs[0].ts : null, last = msgs.length ? msgs[msgs.length - 1].ts : null, when = p.exportedAt || Date.now();
-  var kept = function(one, left){ return one ? one.saved + " saved" + (one.skipped ? ", " + one.skipped + " " + left : "") : ""; };
-  var id = function(v){ return v ? '<button class="tr-id" type="button" data-copy="' + esc(v) + '" title="Copy ID">' + esc(v) + "</button>" : ""; };
-  var cell = function(k, v, extra){ return v ? '<div class="tr-cell"><span>' + k + "</span><b>" + v + "</b>" + (extra || "") + "</div>" : ""; };
-  var files = st.files && st.files.saved + st.files.skipped > 0 ? st.files : null, z = zone();
-  return cell("Server", esc(g.name || "Unknown"), id(g.id)) +
-    cell("Channel", "#" + esc(ch.name || "unknown"), id(ch.id)) +
-    cell("Messages", msgs.length + " from " + plural(people, "person").replace("persons", "people")) +
-    cell("First message", first ? esc(stamp(first)) : "") +
-    cell("Last message", last ? esc(stamp(last)) : "") +
-    cell("Lasted", first && last && last > first ? lasted(last - first) : "") +
-    cell("Images", st.images ? kept(st.images, "skipped") : Object.keys(c.assets).length + " saved") +
-    cell("Files", files ? kept(files, "skipped") : "") +
-    cell("Exported", esc(stamp(when)), '<em>' + esc(utcText(when)) + "</em>") +
-    cell("Times shown in", esc(z.name || z.utc), z.name ? "<em>" + esc(z.utc) + "</em>" : "");
+  var first = msgs.length ? msgs[0].ts : null, last = msgs.length ? msgs[msgs.length - 1].ts : null, made = p.exportedAt || Date.now(), z = zone();
+  var kept = function(one){ return one ? one.saved + " saved" + (one.skipped ? ", " + one.skipped + " skipped" : "") : ""; };
+  var id = function(v){ return v ? ' <button class="tr-id" type="button" data-copy="' + esc(v) + '" title="Copy ID">' + esc(v) + "</button>" : ""; };
+  var row = function(k, v){ return v ? "<div><dt>" + k + "</dt><dd>" + v + "</dd></div>" : ""; };
+  return row("Server", esc(g.name || "Unknown") + id(g.id)) +
+    row("Channel", "#" + esc(ch.name || "unknown") + id(ch.id)) +
+    row("Messages", msgs.length + " saved" + (p.truncated ? ", " + p.truncated + " older skipped" : "") + ", from " + (people === 1 ? "1 person" : people + " people")) +
+    row("Images", st.images ? kept(st.images) : Object.keys(c.assets).length + " saved") +
+    row("Files", st.files ? kept(st.files) : "") +
+    row("First message", first ? esc(fullDate(new Date(first))) : "") +
+    row("Last message", last ? esc(fullDate(new Date(last))) : "") +
+    row("Duration", first && last && last > first ? lasted(last - first) : "") +
+    row("Transcript created", esc(fullDate(new Date(made))) + ' <span class="tr-dim">(' + esc(utcText(made)) + ")</span>") +
+    row("Time zone", "Times are shown in yours: " + esc(z.name ? z.name + ", " + z.utc : z.utc));
 }
 function render(payload, opt){
   var c = context(payload), o = opt || {};
@@ -529,17 +541,19 @@ function render(payload, opt){
       '<section class="tr-top">' +
         '<div class="tr-top__head">' +
           (icon ? '<img class="tr-top__icon" src="' + esc(icon) + '" alt="" data-e="gone">' : '<span class="tr-top__icon tr-top__icon--hash">' + ICON.hash + "</span>") +
-          '<div class="tr-top__title"><h1>#' + esc(ch.name || "channel") + "</h1><p>" + (g.name ? esc(g.name) + " \u00b7 " : "") + "Transcript</p></div>" +
+          '<div class="tr-top__title"><h1>#' + esc(ch.name || "channel") + "</h1>" + (g.name ? "<p>" + esc(g.name) + "</p>" : "") + "</div>" +
         "</div>" +
-        (payload.truncated ? '<p class="tr-top__note">The ' + plural(payload.truncated, "oldest message") + " " + (payload.truncated === 1 ? "was" : "were") + " left out to keep this file within its size limit.</p>" : "") +
-        '<div class="tr-sum" aria-label="Summary">' + summaryHtml(c, order.length) + "</div>" +
+        '<p class="tr-top__facts">' + topFacts(c, order.length) + "</p>" +
+        '<p class="tr-top__when">' + topWhen(c) + "</p>" +
+        (payload.truncated ? '<p class="tr-top__note">The ' + plural(payload.truncated, "oldest message") + " " + (payload.truncated === 1 ? "was" : "were") + " skipped to keep this file within its size limit.</p>" : "") +
         (order.length ? '<ul class="tr-people">' + order.slice(0, 24).map(function(k){
           var u = userOf(c, k);
           return '<li data-user="' + esc(k) + '" role="button" tabindex="0">' + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
         }).join("") + (order.length > 24 ? "<li><span class=\"tr-people__n\">and " + (order.length - 24) + " more</span></li>" : "") + "</ul>" : "") +
+        '<details class="tr-more"><summary>' + ICON.chevron + '<span>Details</span></summary><dl class="tr-list">' + detailsHtml(c, order.length) + "</dl></details>" +
       "</section>" +
       '<div class="tr-log">' + (msgs.length ? messagesHtml(c) : '<p class="tr-empty">There are no messages in this transcript.</p>') + "</div>" +
-      '<footer class="tr-foot"><span>End of transcript</span>' + (brand && brand.name ? "<span>Exported by " + (isHttp(brand.url) ? '<a href="' + esc(brand.url) + '" target="_blank" rel="noopener noreferrer">' + esc(brand.name) + "</a>" : esc(brand.name)) + "</span>" : "") + "</footer>" +
+      '<footer class="tr-foot"><span>End of transcript</span>' + (brand && brand.name ? "<span>Transcript by " + (isHttp(brand.url) ? '<a href="' + esc(brand.url) + '" target="_blank" rel="noopener noreferrer">' + esc(brand.name) + "</a>" : esc(brand.name)) + "</span>" : "") + "</footer>" +
     "</main>" +
     '<div class="tr-zoom" id="trZoom" hidden><img alt=""></div><div class="tr-pop" id="trPop" hidden></div><div class="tr-menu" id="trMenu" role="menu" hidden></div><div class="tr-toast" id="trToast" hidden></div>' +
   "</div>";

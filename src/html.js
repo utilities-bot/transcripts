@@ -103,7 +103,7 @@ function summary(payload, stats) {
     "<Transcript>",
     row("Server", `${safe(payload.guild.name)} (${safe(payload.guild.id)})`),
     row("Channel", `#${safe(payload.channel.name)} (${safe(payload.channel.id)})`),
-    row("Exported", `${exported} UTC`),
+    row("Created", `${exported} UTC`),
     row("Messages", `${String(payload.messages.length)} saved` + (payload.truncated ? `, ${String(payload.truncated)} skipped` : "")),
     row("Images", kept(images)),
     row("Files", kept(files)),

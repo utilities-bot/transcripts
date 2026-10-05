@@ -128,7 +128,7 @@ describe("the file", () => {
       "    Channel   #ticket-0007 (1489260905819541635)",
       lines[3],
     ]);
-    assert.match(lines[3], /^    Exported  \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
+    assert.match(lines[3], /^    Created   \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
     assert.deepEqual(lines.slice(4, 16), [
       "    Messages  12 saved",
       "    Images    3 saved, 1 skipped",
@@ -518,17 +518,20 @@ describe("the viewer", () => {
     const html = viewer.render(payload, {});
 
     for (const piece of [
+      "<span><b>12</b> messages</span><span><b>3</b> people</span><span><b>10</b> images</span><span><b>1</b> file</span>",
       'data-copy="1374147741403320350"',
       'data-copy="1489260905819541635"',
-      "<span>Messages</span><b>12 from 3 people</b>",
-      "<span>Lasted</span><b>1d",
-      "<span>Images</span><b>10 saved</b>",
-      "<span>Files</span><b>1 saved, 1 skipped</b>",
-      "<span>Times shown in</span>",
+      "<dt>Messages</dt><dd>12 saved, from 3 people</dd>",
+      "<dt>Images</dt><dd>10 saved</dd>",
+      "<dt>Files</dt><dd>1 saved, 1 skipped</dd>",
+      "<dt>Duration</dt><dd>1d",
+      "<dt>Transcript created</dt>",
+      "<dt>Time zone</dt><dd>Times are shown in yours: ",
     ]) {
       assert.ok(html.includes(piece), `missing ${piece}`);
     }
-    assert.match(html, /<em>\d{4}-\d\d-\d\d \d\d:\d\d UTC<\/em>/);
+    assert.match(html, /\(\d{4}-\d\d-\d\d \d\d:\d\d UTC\)/);
+    assert.equal(html.includes("Exported"), false, "the word nobody understood is gone");
   });
 
   it("shows a saved picture from the file, not from Discord", async () => {
@@ -641,7 +644,7 @@ describe("createTranscript", () => {
     assert.equal(payload.messages.at(-1).id, long.at(-1).id, "the newest message is the one that is kept");
     assert.equal(payload.truncated, result.truncated);
     assert.match(result.html, /^    Messages  \d+ saved, \d+ skipped$/m);
-    assert.match(viewer.render(payload, {}), /left out to keep this file within its size limit/);
+    assert.match(viewer.render(payload, {}), /skipped to keep this file within its size limit/);
   });
 
   it("pages through a channel's history, newest first, and returns it oldest first", async () => {
