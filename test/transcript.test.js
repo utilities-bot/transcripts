@@ -103,6 +103,16 @@ describe("the file", () => {
     assert.equal(/<link[^>]+href=/i.test(html), false, "no stylesheet is loaded from outside the file");
   });
 
+  /** The viewer is the same in every file, so it travels packed: a file is a summary and two blobs. */
+  it("carries its viewer compressed rather than as pages of script", () => {
+    const html = buildHtml(collected().payload);
+
+    assert.equal(html.includes(".tr-bar"), false, "the stylesheet is not written out");
+    assert.equal(html.includes("function render("), false, "the script is not written out");
+    assert.match(html, /<script id="transcript-viewer" type="application\/octet-stream">[A-Za-z0-9+\/=]+<\/script>/);
+    assert.ok(html.length < 60_000, `a transcript with no pictures is small (${String(html.length)} bytes)`);
+  });
+
   it("says what it is in plain text at the top", () => {
     const html = buildHtml(collected().payload, { stats: { saved: 3, skipped: 1 } });
     const head = html.slice(0, 600);
@@ -139,6 +149,15 @@ describe("collecting messages", () => {
     assert.equal(payload.users[SAMPLE_IDS.mira].display, "Mira");
     assert.equal(payload.roles[SAMPLE_IDS.staffRole].name, "Support Team");
     assert.equal(payload.channels[SAMPLE_IDS.rules].name, "rules");
+  });
+
+  it("keeps what a profile card shows: when somebody joined and their top roles", () => {
+    const { payload } = collected();
+    const jonas = payload.users[SAMPLE_IDS.jonas];
+
+    assert.equal(jonas.joined, Date.UTC(2025, 3, 9));
+    assert.deepEqual(jonas.roles, [SAMPLE_IDS.staffRole, "1374150000000000009"], "highest first, without @everyone");
+    assert.equal(payload.roles["1374150000000000009"].name, "Billing");
   });
 
   it("keeps a forwarded message's own content, attachments and origin", () => {
@@ -206,6 +225,20 @@ describe("saving pictures into the file", () => {
     assert.ok(payload.assets[wanted[0].url], "the first thing asked for is the first thing kept");
   });
 
+  /** What a plan buys: the first few pictures somebody posted, and everybody's face regardless. */
+  it("saves only as many posted pictures as it is allowed, and every avatar and emoji", async () => {
+    const calls = [];
+    const { payload, wanted } = collected();
+    const posted = wanted.filter((item) => item.tier >= 4);
+    const stats = await embedAssets(payload, wanted, { fetch: fakeFetch(calls), maxPictures: 2 });
+
+    assert.ok(posted.length > 2, "the sample has more pictures than the cap");
+    assert.deepEqual(posted.map((item) => item.url in payload.assets), posted.map((_, index) => index < 2), "the earliest two, in order");
+    assert.equal(stats.skipped, posted.length - 2);
+    for (const item of wanted.filter((one) => one.tier < 4)) assert.ok(payload.assets[item.url], `${item.url} is not a posted picture`);
+    assert.equal(calls.some((url) => url.includes("banner.png")), false, "a picture past the cap is never downloaded");
+  });
+
   /** An embed can point anywhere; a bot that fetched it could be aimed at its own network. */
   it("downloads nothing that is not Discord's", async () => {
     const calls = [];
@@ -251,6 +284,23 @@ describe("the viewer", () => {
   it("looks up a custom emoji at the address the collector asked for", () => {
     assert.equal(viewer.emojiUrl("123456789012345678", false), emojiUrl("123456789012345678", false));
     assert.equal(viewer.emojiUrl("123456789012345678", true), emojiUrl("123456789012345678", true));
+  });
+
+  it("marks every name, avatar and mention with whose it is, so a click can open their profile", () => {
+    const html = drawn();
+
+    assert.match(html, new RegExp(`class="name msg__name"[^>]*data-user="${SAMPLE_IDS.jonas}"`));
+    assert.match(html, new RegExp(`<img class="av"[^>]*data-user="${SAMPLE_IDS.mira}"`));
+    assert.match(html, new RegExp(`class="mention" data-user="${SAMPLE_IDS.mira}"`));
+  });
+
+  /** Nobody asked whether a ticket file was "verified"; a changed one is the only thing worth saying. */
+  it("says nothing about a file that is fine, and warns about one that was changed", () => {
+    const payload = collected().payload;
+
+    assert.equal(/Verified|Unchanged|Unsigned/.test(viewer.render(payload, { status: "verified" })), false);
+    assert.equal(/Verified|Unchanged|Unsigned/.test(viewer.render(payload, { status: "unsigned" })), false);
+    assert.match(viewer.render(payload, { status: "modified" }), /This transcript was modified/);
   });
 
   it("draws mentions as names", () => {

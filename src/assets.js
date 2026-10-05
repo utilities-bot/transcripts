@@ -23,10 +23,17 @@ const DEFAULT_MAX_SINGLE_BYTES = 4_000_000;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_CONCURRENCY = 6;
 
+/** The collector's tiers from here up are pictures somebody posted; below are faces and icons. */
+const PICTURE_TIER = 4;
+
+function picturesBefore(batch, index) {
+  return batch.slice(0, index).filter((item) => item.tier >= PICTURE_TIER).length;
+}
+
 /**
  * @param {object} payload the collected transcript; its `assets` map is filled in
  * @param {readonly { url: string, from: string, tier: number }[]} wanted in download order
- * @param {{ fetch?: typeof fetch, maxTotalBytes?: number, maxSingleBytes?: number, timeoutMs?: number, concurrency?: number }} [options]
+ * @param {{ fetch?: typeof fetch, maxTotalBytes?: number, maxSingleBytes?: number, maxPictures?: number, timeoutMs?: number, concurrency?: number }} [options]
  * @returns {Promise<{ saved: number, skipped: number, bytes: number }>}
  */
 export async function embedAssets(payload, wanted, options = {}) {
@@ -34,7 +41,12 @@ export async function embedAssets(payload, wanted, options = {}) {
   const maxTotal = options.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
   const maxSingle = options.maxSingleBytes ?? DEFAULT_MAX_SINGLE_BYTES;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  // How many *pictures* may be saved: attachments and the images inside embeds and containers.
+  // Avatars, emoji, stickers and small icons are not counted — a transcript with faces missing
+  // reads as broken, and together they weigh less than one screenshot.
+  const maxPictures = options.maxPictures ?? Number.POSITIVE_INFINITY;
   const stats = { saved: 0, skipped: 0, bytes: 0 };
+  let pictures = 0;
 
   /** One picture's bytes, or null. Never throws: a missing picture is not a failed transcript. */
   async function download(from) {
@@ -67,7 +79,11 @@ export async function embedAssets(payload, wanted, options = {}) {
   for (let start = 0; start < wanted.length; start += size) {
     const batch = wanted.slice(start, start + size);
     const results = await Promise.all(
-      batch.map(async (item) => {
+      batch.map(async (item, index) => {
+        // Past the cap nothing is even downloaded. Counted by position, so it is the earliest
+        // pictures that are kept whatever order the downloads finish in.
+        if (item.tier >= PICTURE_TIER && pictures + picturesBefore(batch, index) >= maxPictures) return null;
+
         // The resized copy first; the original when Discord would not resize it.
         const sized = await download(item.from);
 
@@ -83,6 +99,7 @@ export async function embedAssets(payload, wanted, options = {}) {
       }
 
       payload.assets[batch[index].url] = `data:${result.type};base64,${result.bytes.toString("base64")}`;
+      if (batch[index].tier >= PICTURE_TIER) pictures += 1;
       stats.saved += 1;
       stats.bytes += result.bytes.length;
     });

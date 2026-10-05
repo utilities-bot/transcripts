@@ -114,10 +114,22 @@ const BOT = user(IDS.bot, "Utilities", { bot: true, verified: true, globalName: 
 const MIRA = user(IDS.mira, "mira.k", { globalName: "Mira" });
 const JONAS = user(IDS.jonas, "jonas", { globalName: "Jonas" });
 
+/** Every member holds @everyone, whose id is the guild's. It is never listed on a profile. */
+const EVERYONE = { id: IDS.guild, name: "@everyone", color: 0, position: 0 };
+
 const MEMBERS = new Map([
-  [IDS.bot, { user: BOT, displayName: "Utilities", displayColor: 0xa6e4f5 }],
-  [IDS.mira, { user: MIRA, displayName: "Mira", displayColor: 0 }],
-  [IDS.jonas, { user: JONAS, displayName: "Jonas", displayColor: 0xf1c40f }],
+  [IDS.bot, { user: BOT, displayName: "Utilities", displayColor: 0xa6e4f5, joinedTimestamp: Date.UTC(2025, 2, 14), roles: { cache: [] } }],
+  [IDS.mira, { user: MIRA, displayName: "Mira", displayColor: 0, joinedTimestamp: Date.UTC(2026, 6, 2), roles: { cache: [EVERYONE] } }],
+  [
+    IDS.jonas,
+    {
+      user: JONAS,
+      displayName: "Jonas",
+      displayColor: 0xf1c40f,
+      joinedTimestamp: Date.UTC(2025, 3, 9),
+      roles: { cache: [EVERYONE, { id: IDS.staffRole, name: "Support Team", color: 0xf1c40f, position: 5 }, { id: "1374150000000000009", name: "Billing", color: 0x57d38c, position: 3 }] },
+    },
+  ],
 ]);
 
 export const GUILD = {

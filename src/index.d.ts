@@ -44,6 +44,8 @@ export interface CreateTranscriptOptions {
   readonly maxTotalBytes?: number;
   /** The largest single picture, in bytes. Default 4 MB. */
   readonly maxSingleBytes?: number;
+  /** How many posted pictures to save. Avatars, emoji and stickers are not counted. Default no cap. */
+  readonly maxPictures?: number;
   /** Wider pictures are scaled down to this by Discord before download. Default 1100. */
   readonly maxImageWidth?: number;
   /** Credited in the transcript's footer. */
@@ -123,6 +125,7 @@ export function embedAssets(
     readonly fetch?: typeof fetch;
     readonly maxTotalBytes?: number;
     readonly maxSingleBytes?: number;
+    readonly maxPictures?: number;
     readonly timeoutMs?: number;
     readonly concurrency?: number;
   },

@@ -25,6 +25,12 @@ const KIND = {
 /** How wide a picture is ever drawn, doubled for sharp screens. */
 const DEFAULT_MAX_IMAGE_WIDTH = 1100;
 
+/** An embed's picture is drawn at 440px at most; twice that keeps it sharp and no more. */
+const MAX_EMBED_IMAGE_WIDTH = 880;
+
+/** How many of somebody's roles their profile card lists. */
+const MAX_PROFILE_ROLES = 8;
+
 const list = (value) => {
   if (value === null || value === undefined) return [];
   if (Array.isArray(value)) return value;
@@ -118,9 +124,24 @@ export function collectTranscript(messages, context = {}) {
     if (found) channels[id] = { name: text(found.name) };
   }
 
+  /** A member's highest few roles, for their profile card. Never @everyone, whose id is the guild's. */
+  function topRoles(member) {
+    return list(member?.roles?.cache)
+      .filter((role) => String(role.id) !== String(guild?.id))
+      .sort((a, b) => (Number(b.position) || 0) - (Number(a.position) || 0))
+      .slice(0, MAX_PROFILE_ROLES)
+      .map((role) => {
+        roles[role.id] ??= lean({ name: text(role.name), color: hex(role.color) });
+
+        return String(role.id);
+      });
+  }
+
   /** Registers somebody and answers the key messages refer to them by. */
-  function person(user, member, webhook = false) {
+  function person(user, given, webhook = false) {
     if (!user) return undefined;
+    // A message does not always carry its author's member; the guild usually still knows them.
+    const member = given ?? (webhook ? undefined : call(guild?.members?.cache, "get", user.id));
     // A webhook posts under one id and any number of names, so the name is part of who it is.
     const key = webhook ? `${String(user.id)}:${text(user.username)}` : String(user.id);
     if (users[key]) return key;
@@ -140,6 +161,8 @@ export function collectTranscript(messages, context = {}) {
       bot: Boolean(user.bot),
       verified: Boolean(call(user.flags, "has", "VerifiedBot")),
       webhook,
+      joined: Number(member?.joinedTimestamp) || undefined,
+      roles: topRoles(member),
     });
     if (users[key].display === users[key].name) delete users[key].display;
 
@@ -175,7 +198,8 @@ export function collectTranscript(messages, context = {}) {
     const proxied = text(media.proxy_url) || text(media.proxyURL) || media.url;
     const width = Number(media.width) || 0;
     const height = Number(media.height) || 0;
-    want(media.url, tier, sizedUrl(proxied, { width, height, maxWidth, type: media.content_type }));
+    const cap = Math.min(maxWidth, MAX_EMBED_IMAGE_WIDTH);
+    want(media.url, tier, sizedUrl(proxied, { width, height, maxWidth: cap, type: media.content_type }));
 
     return lean({ url: media.url, w: width || undefined, h: height || undefined });
   }

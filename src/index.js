@@ -46,6 +46,7 @@ async function history(channel, limit) {
  * @param {typeof fetch} [options.fetch] how pictures are downloaded; default the global fetch
  * @param {number} [options.maxTotalBytes] budget for all pictures together
  * @param {number} [options.maxSingleBytes] the largest single picture
+ * @param {number} [options.maxPictures] how many posted pictures to save; avatars and emoji are not counted
  * @param {number} [options.maxImageWidth] wider pictures are scaled down to this by Discord
  * @param {{ name: string, url?: string }} [options.brand] credited in the footer
  */
@@ -65,6 +66,7 @@ export async function createTranscript(channel, options = {}) {
           fetch: options.fetch,
           maxTotalBytes: options.maxTotalBytes,
           maxSingleBytes: options.maxSingleBytes,
+          maxPictures: options.maxPictures,
         });
 
   return {

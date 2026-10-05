@@ -51,6 +51,7 @@ var ICON = {
   image: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5Zm13.35 8.13 3.5 4.67c.37.5.02 1.2-.6 1.2H5.81a.75.75 0 0 1-.59-1.22l1.86-2.32a1.5 1.5 0 0 1 2.34 0l.5.64 2.23-2.97a2 2 0 0 1 3.2 0ZM10.2 5.98c.23-.91-.88-1.55-1.55-.9a.93.93 0 0 1-1.3 0c-.67-.65-1.78-.01-1.55.9a.93.93 0 0 1-.65 1.12c-.9.26-.9 1.54 0 1.8.48.14.77.63.65 1.12-.23.91.88 1.55 1.55.9a.93.93 0 0 1 1.3 0c.67.65 1.78.01 1.55-.9a.93.93 0 0 1 .65-1.12c.9-.26.9-1.54 0-1.8a.93.93 0 0 1-.65-1.12Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
   shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1.5 3.5 4.6v6.5c0 5.2 3.5 9.9 8.5 11.4 5-1.5 8.5-6.2 8.5-11.4V4.6L12 1.5Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 4.8-4.8 1.4 1.4-6.2 6.2Z"/></svg>',
   alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2Zm1 15h-2v-2h2v2Zm0-4h-2V9h2v4Z"/></svg>',
+  search: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.62 17.03a9 9 0 1 1 1.41-1.41l4.68 4.67a1 1 0 0 1-1.42 1.42l-4.67-4.68ZM17 10a7 7 0 1 0-14 0 7 7 0 0 0 14 0Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
   slash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 3a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5Zm9.6 3.3a1 1 0 0 1 .6 1.3l-4.5 10.5a1 1 0 1 1-1.84-.8L13.3 6.9a1 1 0 0 1 1.3-.6Z"/></svg>'
 };
 
@@ -94,7 +95,7 @@ function userOf(c, key){ return c.users[key] || { name: "Unknown User" }; }
 function shown(u){ return u.display || u.name || "Unknown User"; }
 function nameHtml(c, key, extra){
   var u = userOf(c, key);
-  return '<span class="name' + (extra ? " " + extra : "") + '"' + (u.color ? ' style="color:' + esc(u.color) + '"' : "") + ' title="' + esc(u.name || "") + '">' + esc(shown(u)) + "</span>";
+  return '<span class="name' + (extra ? " " + extra : "") + '"' + (u.color ? ' style="color:' + esc(u.color) + '"' : "") + ' data-user="' + esc(key) + '">' + esc(shown(u)) + "</span>";
 }
 function tagHtml(u){
   if (u.webhook || u.bot) return '<span class="tag">' + (u.verified ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="m6.2 11.6-3-3 1.1-1.1 1.9 1.9 5.5-5.5 1.1 1.1-6.6 6.6Z"/></svg>' : "") + "APP</span>";
@@ -102,40 +103,48 @@ function tagHtml(u){
 }
 function avatarHtml(c, key, cls){
   var u = userOf(c, key), s = src(c, u.avatar);
-  if (s) return '<img class="' + cls + '" src="' + esc(s) + '" alt="" draggable="false" loading="lazy" data-e="avatar" data-n="' + esc(shown(u).slice(0, 1)) + '">';
-  return '<span class="' + cls + ' av--blank" aria-hidden="true">' + esc(shown(u).slice(0, 1).toUpperCase()) + "</span>";
+  if (s) return '<img class="' + cls + '" src="' + esc(s) + '" alt="" draggable="false" loading="lazy" data-user="' + esc(key) + '" data-e="avatar" data-n="' + esc(shown(u).slice(0, 1)) + '">';
+  return '<span class="' + cls + ' av--blank" data-user="' + esc(key) + '" aria-hidden="true">' + esc(shown(u).slice(0, 1).toUpperCase()) + "</span>";
 }
 
-/* ---------- time */
-function pad(n){ return (n < 10 ? "0" : "") + n; }
-function clock(d){ return (d.getHours() % 12 || 12) + ":" + pad(d.getMinutes()) + " " + (d.getHours() < 12 ? "AM" : "PM"); }
+/* ---------- time: written in the reader's own language and order, as Discord does */
+function fmt(o){ try { return new Intl.DateTimeFormat(undefined, o); } catch (e) { return new Intl.DateTimeFormat("en-US", o); } }
+var F_TIME = fmt({ hour: "numeric", minute: "2-digit" }), F_SECS = fmt({ hour: "numeric", minute: "2-digit", second: "2-digit" });
+var F_SHORT = fmt({ day: "2-digit", month: "2-digit", year: "numeric" }), F_LONG = fmt({ day: "numeric", month: "long", year: "numeric" });
+var F_FULL = fmt({ weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit" });
+var F_BOTH = fmt({ day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit" });
+var F_DAY = fmt({ day: "numeric", month: "short", year: "numeric" });
+function clock(d){ return F_TIME.format(d); }
 function sameDay(a, b){ return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
-var MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-var DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-function longDate(d){ return MONTHS[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear(); }
-function fullDate(d){ return DAYS[d.getDay()] + ", " + longDate(d) + " at " + clock(d); }
-function stamp(ms){
-  var d = new Date(ms);
-  return (d.getMonth() + 1) + "/" + d.getDate() + "/" + String(d.getFullYear()).slice(2) + ", " + clock(d);
-}
+function longDate(d){ return F_LONG.format(d); }
+function fullDate(d){ return F_FULL.format(d); }
+function stamp(ms){ var d = new Date(ms); return F_SHORT.format(d) + " " + F_TIME.format(d); }
 function timeHtml(ms, cls, label){
   var d = new Date(ms);
   return '<time class="' + cls + '" datetime="' + d.toISOString() + '" title="' + esc(fullDate(d)) + '">' + esc(label == null ? stamp(ms) : label) + "</time>";
 }
+/* "an hour ago", "3 days ago", "in a minute": Discord's wording for a relative time */
+function relative(s){
+  var a = Math.abs(s), n = function(x, unit){ return Math.round(a / x) + " " + unit; };
+  var t = a < 45 ? "a few seconds" : a < 90 ? "a minute" : a < 2700 ? n(60, "minutes") : a < 5400 ? "an hour" : a < 79200 ? n(3600, "hours") :
+    a < 129600 ? "a day" : a < 2246400 ? n(86400, "days") : a < 3888000 ? "a month" : a < 29808000 ? n(2592000, "months") : a < 47304000 ? "a year" : n(31536000, "years");
+  return s < 0 ? t + " ago" : "in " + t;
+}
 function fmtTime(sec, style, now){
   var d = new Date(sec * 1000);
   switch (style) {
-    case "t": return clock(d);
-    case "T": return (d.getHours() % 12 || 12) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()) + " " + (d.getHours() < 12 ? "AM" : "PM");
-    case "d": return (d.getMonth() + 1) + "/" + d.getDate() + "/" + d.getFullYear();
-    case "D": return longDate(d);
-    case "F": return fullDate(d);
-    case "R": {
-      var s = Math.round((d - now) / 1000), a = Math.abs(s), u = [[31536000,"year"],[2592000,"month"],[86400,"day"],[3600,"hour"],[60,"minute"],[1,"second"]];
-      for (var q = 0; q < u.length; q++) if (a >= u[q][0] || q === u.length - 1) { var n = Math.max(1, Math.floor(a / u[q][0])), w = n + " " + u[q][1] + (n === 1 ? "" : "s"); return s < 0 ? w + " ago" : "in " + w; }
-    }
-    default: return longDate(d) + " at " + clock(d);
+    case "t": return F_TIME.format(d);
+    case "T": return F_SECS.format(d);
+    case "d": return F_SHORT.format(d);
+    case "D": return F_LONG.format(d);
+    case "F": return F_FULL.format(d);
+    case "R": return relative(Math.round((d - now) / 1000));
+    default: return F_BOTH.format(d);
   }
+}
+/* when an account was made is written into its id: the top bits are milliseconds since 2015 */
+function createdAt(id){
+  try { var ms = Number((BigInt(id) >> 22n) + 1420070400000n); return ms > 1420070400000 && ms < 4102444800000 ? ms : null; } catch (e) { return null; }
 }
 
 /* ---------- Discord markdown
@@ -150,7 +159,7 @@ var INLINE = [
   [/^(`+)([\s\S]*?[^`])\1(?!`)/, function(m){ return "<code>" + esc(m[2].trim()) + "</code>"; }],
   [/^<(a?):(\w{2,32}):(\d{15,21})>/, function(m, c, o){ return customEmoji(c, m[3], m[2], !!m[1], o.big); }],
   [/^<t:(-?\d{1,13})(?::([tTdDfFR]))?>/, function(m, c){ return '<span class="stamp" title="' + esc(fullDate(new Date(+m[1] * 1000))) + '">' + esc(fmtTime(+m[1], m[2] || "f", c.now)) + "</span>"; }],
-  [/^<@!?(\d{15,21})>/, function(m, c){ var u = c.users[m[1]]; return mention("@" + (u ? shown(u) : "unknown-user")); }],
+  [/^<@!?(\d{15,21})>/, function(m, c){ var u = c.users[m[1]]; return mention("@" + (u ? shown(u) : "unknown-user"), u ? ' data-user="' + esc(m[1]) + '"' : ""); }],
   [/^<@&(\d{15,21})>/, function(m, c){
     var r = c.roles[m[1]];
     if (!r) return mention("@deleted-role");
@@ -296,6 +305,7 @@ function embedHtml(c, e){
   /* a video link: the still frame, large, the way Discord shows a player */
   var play = false;
   if (kind === "video" && thumb && !big) { big = thumb; thumb = null; play = true; }
+  if (kind !== "rich" && thumb && !big && thumb.w >= 300 && thumb.w > thumb.h) { big = thumb; thumb = null; }
   if (!rich && !big && !thumb && !e.provider) return "";                 // nothing to draw: no empty box
   var html = '<div class="embed"' + (e.color ? ' style="--bar:' + esc(e.color) + '"' : "") + '><div class="embed__grid' + (thumb && src(c, thumb.url) ? " has-thumb" : "") + '"><div class="embed__main">';
   if (e.provider) html += '<p class="embed__provider">' + plain(e.provider) + "</p>";
@@ -319,7 +329,7 @@ function embedHtml(c, e){
   html += "</div>";
   if (thumb && src(c, thumb.url)) html += '<span class="embed__thumb">' + tile(c, thumb, { name: "Thumbnail", fill: true }) + "</span>";
   html += "</div>";
-  if (big) html += '<div class="embed__image">' + tile(c, big, { name: "Image", maxW: 400, maxH: 300, badge: play ? "VIDEO" : "" }) + "</div>";
+  if (big) html += '<div class="embed__image">' + tile(c, big, { name: "Image", maxW: 440, maxH: 300, badge: play ? "VIDEO" : "" }) + "</div>";
   if ((e.footer && e.footer.text) || e.timestamp) {
     var fi = src(c, e.footer && e.footer.icon), ft = e.footer && e.footer.text ? plain(e.footer.text) : "";
     html += '<p class="embed__footer">' + (fi ? '<img src="' + esc(fi) + '" alt="" loading="lazy" data-e="gone">' : "") + "<span>" + ft + (ft && e.timestamp ? '<span class="embed__dot">•</span>' : "") + (e.timestamp ? esc(stamp(e.timestamp)) : "") + "</span></p>";
@@ -426,7 +436,7 @@ function messagesHtml(c){
     var sys = SYSTEM[m.kind];
     if (sys) {
       if (open) { out += "</div>"; open = false; }
-      out += '<div class="sys sys--' + sys[0] + '" id="m-' + esc(m.id) + '"><span class="sys__icon">' + ICON[sys[0]] + '</span><div class="sys__text">' + sys[1](c, m) + " " + timeHtml(m.ts, "sys__time") + "</div></div>";
+      out += '<div class="sys sys--' + sys[0] + '" id="m-' + esc(m.id) + '" data-mid="' + esc(m.id) + '"><span class="sys__icon">' + ICON[sys[0]] + '</span><div class="sys__text">' + sys[1](c, m) + " " + timeHtml(m.ts, "sys__time") + "</div></div>";
       prev = m; return;
     }
     var head = !prev || SYSTEM[prev.kind] || prev.author !== m.author || m.reply || m.command || m.ts - prev.ts > 7 * 60000;
@@ -435,7 +445,7 @@ function messagesHtml(c){
       out += '<div class="group">'; open = true;
     }
     var u = userOf(c, m.author), inner = (m.forwarded ? forwardHtml(c, m.forwarded) : bodyHtml(c, m, { edited: !!m.edited })) + pollHtml(c, m.poll) + reactionsHtml(c, m.reactions);
-    out += '<div class="msg' + (head ? " msg--head" : "") + '" id="m-' + esc(m.id) + '">' +
+    out += '<div class="msg' + (head ? " msg--head" : "") + '" id="m-' + esc(m.id) + '" data-mid="' + esc(m.id) + '">' +
       (head ? replyHtml(c, m) : "") +
       '<div class="msg__side">' + (head ? avatarHtml(c, m.author, "av") : timeHtml(m.ts, "msg__at", clock(d))) + "</div>" +
       '<div class="msg__main">' +
@@ -448,31 +458,23 @@ function messagesHtml(c){
 }
 
 /* ---------- the page around the messages */
-var STATUS = {
-  verified: ["ok", "shield", "Verified", "Signed by its exporter and unchanged since it was exported."],
-  intact: ["ok", "shield", "Unchanged", "This file matches its signature: nothing in it has changed since it was signed."],
-  modified: ["bad", "alert", "Modified", "This file was changed after it was exported. Do not rely on what it shows."],
-  unsigned: ["off", "shield", "Unsigned", "This transcript was exported without a signature, so changes to it cannot be detected."],
-  unknown: ["off", "shield", "Not checked", "This browser cannot check the signature. Open the file in a current browser to check it."],
-  checking: ["off", "shield", "Checking", "Checking the signature."]
-};
 function context(payload){
   var c = { p: payload, assets: payload.assets || {}, users: payload.users || {}, roles: payload.roles || {}, channels: payload.channels || {}, byId: {}, now: Date.now() };
   (payload.messages || []).forEach(function(m){ c.byId[m.id] = m; });
   return c;
 }
 function render(payload, opt){
-  var c = context(payload), o = opt || {}, st = STATUS[o.status] || STATUS.unsigned;
+  var c = context(payload), o = opt || {};
   var g = payload.guild || {}, ch = payload.channel || {}, msgs = payload.messages || [];
   var counts = {}, order = [];
   msgs.forEach(function(m){ if (!m.author) return; if (!counts[m.author]) { counts[m.author] = 0; order.push(m.author); } counts[m.author]++; });
   order.sort(function(a, b){ return counts[b] - counts[a]; });
   var savedCount = Object.keys(c.assets).length, icon = src(c, g.icon), brand = payload.brand || null;
-  var badge = '<span class="tr-badge tr-badge--' + st[0] + '" id="trBadge" title="' + esc(st[3]) + '">' + ICON[st[1]] + "<span>" + st[2] + "</span></span>";
 
   return '<div class="tr">' +
     '<header class="tr-bar"><span class="tr-bar__hash">' + ICON.hash + '</span><b class="tr-bar__name">' + esc(ch.name || "transcript") + "</b>" +
-      (g.name ? '<span class="tr-bar__sep"></span><span class="tr-bar__topic">' + esc(g.name) + "</span>" : "") + badge + "</header>" +
+      (g.name ? '<span class="tr-bar__sep"></span><span class="tr-bar__topic">' + esc(g.name) + "</span>" : "") +
+      '<label class="tr-find">' + ICON.search + '<input id="trFind" type="search" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search this transcript"><span id="trFound"></span></label></header>' +
     '<main class="tr-main">' +
       (o.status === "modified" ? '<div class="tr-warn">' + ICON.alert + "<div><b>This transcript was modified.</b><span>The file no longer matches the signature it was exported with, so what it shows may not be what was said.</span></div></div>" : "") +
       '<section class="tr-intro">' +
@@ -482,13 +484,13 @@ function render(payload, opt){
         '<ul class="tr-facts"><li><b>' + msgs.length + "</b> " + (msgs.length === 1 ? "message" : "messages") + "</li><li><b>" + order.length + "</b> " + (order.length === 1 ? "participant" : "participants") + "</li><li><b>" + savedCount + "</b> " + (savedCount === 1 ? "image" : "images") + " saved</li></ul>" +
         (order.length ? '<ul class="tr-people">' + order.slice(0, 24).map(function(k){
           var u = userOf(c, k);
-          return "<li>" + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
+          return '<li data-user="' + esc(k) + '" role="button" tabindex="0">' + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
         }).join("") + (order.length > 24 ? "<li><span class=\"tr-people__n\">and " + (order.length - 24) + " more</span></li>" : "") + "</ul>" : "") +
       "</section>" +
       '<div class="tr-log">' + (msgs.length ? messagesHtml(c) : '<p class="tr-empty">There are no messages in this transcript.</p>') + "</div>" +
       '<footer class="tr-foot"><span>End of transcript</span>' + (brand && brand.name ? "<span>Exported by " + (isHttp(brand.url) ? '<a href="' + esc(brand.url) + '" target="_blank" rel="noopener noreferrer">' + esc(brand.name) + "</a>" : esc(brand.name)) + "</span>" : "") + "</footer>" +
     "</main>" +
-    '<div class="tr-zoom" id="trZoom" hidden><img alt=""></div>' +
+    '<div class="tr-zoom" id="trZoom" hidden><img alt=""></div><div class="tr-pop" id="trPop" hidden></div><div class="tr-menu" id="trMenu" role="menu" hidden></div><div class="tr-toast" id="trToast" hidden></div>' +
   "</div>";
 }
 
@@ -521,32 +523,122 @@ function check(envelope, trustedKeys){
   }, function(){ return "unknown"; });
 }
 
-/* ---------- the page: the handful of things that answer a click */
-function wire(el){
-  var zoom = el.querySelector("#trZoom");
-  function closeZoom(){ if (zoom) zoom.hidden = true; }
-  function act(t){
+/* A person's card: who they are in this server, from what the export saved about them. */
+function profileHtml(c, key){
+  var u = userOf(c, key), made = u.id ? createdAt(u.id) : null, count = 0;
+  c.p.messages.forEach(function(m){ if (m.author === key) count++; });
+  var roles = (u.roles || []).map(function(id){ return c.roles[id]; }).filter(Boolean);
+  var row = function(k, v){ return v ? '<div class="tr-pop__row"><span>' + k + "</span><b>" + v + "</b></div>" : ""; };
+  return '<div class="tr-pop__banner"' + (u.color ? ' style="background:' + esc(u.color) + '"' : "") + "></div>" +
+    '<div class="tr-pop__body">' + avatarHtml(c, key, "tr-pop__av") +
+    '<p class="tr-pop__name">' + esc(shown(u)) + tagHtml(u) + "</p>" +
+    '<p class="tr-pop__user">' + esc(u.name || "") + "</p>" +
+    '<div class="tr-pop__card">' +
+      row("Joined Discord", made ? esc(F_DAY.format(new Date(made))) : "") +
+      row("Joined server", u.joined ? esc(F_DAY.format(new Date(u.joined))) : "") +
+      row("Messages here", String(count)) +
+      (roles.length ? '<div class="tr-pop__roles">' + roles.map(function(r){ return '<span class="tr-pop__role"><i' + (r.color ? ' style="background:' + esc(r.color) + '"' : "") + "></i>" + esc(r.name) + "</span>"; }).join("") + "</div>" : "") +
+      (u.id ? '<button class="tr-pop__id" type="button" data-copy="' + esc(u.id) + '" title="Copy user ID"><span>ID</span>' + esc(u.id) + "</button>" : "") +
+    "</div></div>";
+}
+
+/* ---------- the page: the things that answer a click */
+function wire(el, c){
+  var zoom = el.querySelector("#trZoom"), pop = el.querySelector("#trPop"), menu = el.querySelector("#trMenu"), toast = el.querySelector("#trToast"), toastT = 0;
+  function close(){ if (zoom) zoom.hidden = true; if (pop) pop.hidden = true; if (menu) menu.hidden = true; }
+  function say(text){ if (!toast) return; toast.textContent = text; toast.hidden = false; clearTimeout(toastT); toastT = setTimeout(function(){ toast.hidden = true; }, 1400); }
+  function copy(text, label){
+    var done = function(){ say(label || "Copied"); };
+    var old = function(){ var t = document.createElement("textarea"); t.value = text; t.style.cssText = "position:fixed;opacity:0"; el.appendChild(t); t.select(); try { document.execCommand("copy"); done(); } catch (e) { say("Couldn't copy"); } t.remove(); };
+    if (root.navigator && navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, old); else old();
+  }
+  /* put a floating box where the pointer is, kept inside the window */
+  function place(box, x, y){
+    box.hidden = false; box.style.left = "0px"; box.style.top = "0px";
+    var w = box.offsetWidth, h = box.offsetHeight, vw = root.innerWidth || 1024, vh = root.innerHeight || 768;
+    box.style.left = Math.max(8, Math.min(x, vw - w - 8)) + "px";
+    box.style.top = Math.max(8, Math.min(y, vh - h - 8)) + "px";
+  }
+  function profile(key, x, y){ if (!pop || !c.users[key]) return; if (menu) menu.hidden = true; pop.innerHTML = profileHtml(c, key); place(pop, x, y); }
+  function openMenu(items, x, y){
+    if (!menu || !items.length) return;
+    if (pop) pop.hidden = true;
+    menu.innerHTML = items.map(function(it, i){ return '<button type="button" role="menuitem" data-i="' + i + '">' + esc(it[0]) + "</button>"; }).join("");
+    menu._items = items; place(menu, x, y);
+  }
+  function jumpTo(id){
+    var to = el.querySelector("#m-" + (root.CSS && CSS.escape ? CSS.escape(id) : id));
+    if (to) { to.scrollIntoView({ block: "center" }); to.classList.remove("is-flash"); void to.offsetWidth; to.classList.add("is-flash"); }
+  }
+  function act(t, e){
     var sp = t.closest(".spoiler, .is-spoiler");
     if (sp && !sp.classList.contains("is-open")) { sp.classList.add("is-open"); return true; }
+    var who = t.closest("[data-user]");
+    if (who && !t.closest(".ref")) { var r = who.getBoundingClientRect(); profile(who.getAttribute("data-user"), e && e.clientX ? e.clientX + 12 : r.right + 8, e && e.clientY ? e.clientY - 20 : r.top); return true; }
     var jump = t.closest("[data-jump]");
-    if (jump) {
-      var to = el.querySelector("#m-" + (root.CSS && CSS.escape ? CSS.escape(jump.getAttribute("data-jump")) : jump.getAttribute("data-jump")));
-      if (to) { to.scrollIntoView({ block: "center", behavior: "smooth" }); to.classList.remove("is-flash"); void to.offsetWidth; to.classList.add("is-flash"); }
-      return true;
-    }
+    if (jump) { jumpTo(jump.getAttribute("data-jump")); return true; }
     var pic = t.closest("[data-zoom]");
     if (pic && zoom) { var im = pic.querySelector("img"); if (im) { zoom.querySelector("img").src = im.src; zoom.hidden = false; } return true; }
     return false;
   }
   el.addEventListener("click", function(e){
-    if (zoom && !zoom.hidden && e.target.closest("#trZoom")) { closeZoom(); return; }
-    if (e.target.closest("a")) return;
-    act(e.target);
+    var t = e.target;
+    if (zoom && !zoom.hidden && t.closest("#trZoom")) { close(); return; }
+    var item = t.closest("#trMenu button");
+    if (item) { var it = menu._items[+item.getAttribute("data-i")]; menu.hidden = true; if (it) it[1](); return; }
+    var cp = t.closest("[data-copy]");
+    if (cp) { copy(cp.getAttribute("data-copy"), "Copied ID"); return; }
+    if (t.closest("#trPop")) return;
+    if (t.closest("a") || t.closest("#trFind")) { close(); return; }
+    if (!act(t, e)) close();
+  });
+  /* Right-click: the things worth copying. A link, a picture's own menu or selected text keeps
+     the browser's menu, and so does anything while Shift is held. */
+  el.addEventListener("contextmenu", function(e){
+    var t = e.target, sel = root.getSelection ? String(root.getSelection()) : "";
+    if (e.shiftKey || sel || t.closest("a, input, #trZoom")) return;
+    var who = t.closest("[data-user]"), msg = t.closest("[data-mid]"), items = [];
+    if (who) {
+      var key = who.getAttribute("data-user"), u = c.users[key];
+      if (u) {
+        items.push(["Profile", function(){ profile(key, e.clientX, e.clientY); }]);
+        items.push(["Copy Username", function(){ copy(u.name || "", "Copied username"); }]);
+        if (u.id) items.push(["Copy User ID", function(){ copy(u.id, "Copied ID"); }]);
+      }
+    }
+    if (msg) {
+      var m = c.byId[msg.getAttribute("data-mid")];
+      if (m) {
+        var text = m.content || (m.forwarded && m.forwarded.content) || "";
+        if (text) items.push(["Copy Text", function(){ copy(text, "Copied text"); }]);
+        items.push(["Copy Message ID", function(){ copy(m.id, "Copied ID"); }]);
+        if (c.p.guild && c.p.guild.id && c.p.channel && c.p.channel.id) items.push(["Copy Message Link", function(){ copy("https://discord.com/channels/" + c.p.guild.id + "/" + c.p.channel.id + "/" + m.id, "Copied link"); }]);
+      }
+    }
+    if (!items.length) return;
+    e.preventDefault();
+    openMenu(items, e.clientX, e.clientY);
   });
   el.addEventListener("keydown", function(e){
-    if (e.key === "Escape") { closeZoom(); return; }
+    if (e.key === "Escape") { close(); return; }
     if ((e.key === "Enter" || e.key === " ") && e.target.matches && e.target.matches("[role=button]")) { if (act(e.target)) e.preventDefault(); }
   });
+  if (root.addEventListener) root.addEventListener("scroll", function(){ if (menu) menu.hidden = true; }, { passive: true });
+
+  /* search: hides what doesn't match, by text or by who said it */
+  var find = el.querySelector("#trFind"), found = el.querySelector("#trFound");
+  if (find) find.addEventListener("input", function(){
+    var q = find.value.trim().toLowerCase(), n = 0;
+    Array.prototype.forEach.call(el.querySelectorAll("[data-mid]"), function(node){
+      var m = c.byId[node.getAttribute("data-mid")] || {}, u = c.users[m.author] || {};
+      var hit = !q || node.textContent.toLowerCase().indexOf(q) >= 0 || (u.name || "").toLowerCase().indexOf(q) >= 0 || shown(u).toLowerCase().indexOf(q) >= 0;
+      node.classList.toggle("is-out", !hit); if (hit) n++;
+    });
+    Array.prototype.forEach.call(el.querySelectorAll(".group"), function(g){ g.classList.toggle("is-out", !g.querySelector(".msg:not(.is-out)")); });
+    el.querySelector(".tr").classList.toggle("is-finding", !!q);
+    if (found) found.textContent = q ? n + (n === 1 ? " result" : " results") : "";
+  });
+
   /* a picture that will not load: an emoji falls back to its text, an avatar to an initial,
      anything else to a line saying it is gone. Listened for here because "error" does not bubble. */
   el.addEventListener("error", function(e){
@@ -554,16 +646,10 @@ function wire(el){
     if (!im || im.tagName !== "IMG") return;
     var kind = im.getAttribute("data-e");
     if (kind === "emoji") { im.replaceWith(document.createTextNode(im.alt)); return; }
-    if (kind === "avatar") { var s = document.createElement("span"); s.className = im.className + " av--blank"; s.textContent = (im.getAttribute("data-n") || "?").toUpperCase(); im.replaceWith(s); return; }
+    if (kind === "avatar") { var s = document.createElement("span"); s.className = im.className + " av--blank"; s.textContent = (im.getAttribute("data-n") || "?").toUpperCase(); if (im.getAttribute("data-user")) s.setAttribute("data-user", im.getAttribute("data-user")); im.replaceWith(s); return; }
     if (kind === "pic") { var box = im.closest(".pic") || im, w = document.createElement("span"); w.className = "pic is-lost"; w.innerHTML = missing(im.getAttribute("data-n")); box.replaceWith(w); return; }
     im.remove();
   }, true);
-}
-function setBadge(el, status){
-  var b = el.querySelector("#trBadge"), st = STATUS[status];
-  if (!b || !st) return;
-  b.className = "tr-badge tr-badge--" + st[0]; b.title = st[3];
-  b.innerHTML = ICON[st[1]] + "<span>" + st[2] + "</span>";
 }
 function fail(el, text){ el.innerHTML = '<div class="tr"><div class="tr-error">' + ICON.alert + "<b>This transcript cannot be opened.</b><span>" + esc(text) + "</span></div></div>"; }
 
@@ -572,7 +658,7 @@ function mount(el, envelope, opt){
   var o = opt || {};
   return Promise.all([decode(envelope), check(envelope, o.trustedKeys)]).then(function(got){
     el.innerHTML = render(got[0], { status: got[1] });
-    wire(el);
+    wire(el, context(got[0]));
     return { status: got[1], payload: got[0] };
   }, function(err){
     /* data that will not unpack is the plainest kind of modified */
@@ -581,7 +667,7 @@ function mount(el, envelope, opt){
   });
 }
 
-root.UtilTranscript = { render: render, mount: mount, decode: decode, check: check, emojiUrl: emojiUrl, setBadge: setBadge };
+root.UtilTranscript = { render: render, mount: mount, decode: decode, check: check, emojiUrl: emojiUrl };
 
 /* a transcript file opens itself */
 if (typeof document !== "undefined") {
