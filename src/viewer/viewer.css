@@ -334,7 +334,9 @@ a.btn:hover{background:#4e4f57}
   .day{margin-left:12px;margin-right:12px}
   .tr-foot{margin-left:12px;margin-right:12px}
   .media--grid,.embed,.components,.file,.poll{max-width:100%}
-  .tr-pop{left:8px!important;right:8px;width:auto}
+  .tr-pop{width:244px;padding:10px}
+  .tr-more>summary{width:100%}
+  .tr-more__btn{margin-left:auto}
   .md pre,.md blockquote{max-width:100%}
   .embed__row{grid-template-columns:1fr}
 }
