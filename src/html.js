@@ -1,12 +1,17 @@
 // The file itself: one HTML document that carries its data and its own viewer.
 //
-// Nothing in it is fetched to draw the transcript. The stylesheet and the
-// viewer travel inside it, so the file opens the same way from a Discord
-// download, from a website, or from a backup years later.
+// Nothing in it is fetched to draw the transcript. It opens the same way from
+// a Discord download, from a website, or from a backup years later.
 //
-// To keep it small and tidy the file is three things: a plain-text summary,
-// the transcript's data, and the viewer — the last two gzipped and written as
-// base64 — plus a loader a few lines long that unpacks the viewer and runs it.
+// It is laid out to be read as text too. After one line that tells a browser
+// what it is looking at, there are three blocks:
+//
+//   <Server-Info>      where and when, in plain words
+//   <User-Info>        who spoke, and how much
+//   <Base-Transcript>  the transcript's data and the viewer, both gzipped and
+//                      written as base64, and a loader a few lines long
+//
+// The loader clears the plain text away, unpacks the viewer and runs it.
 
 import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
@@ -17,38 +22,59 @@ const VIEWER_JS = readFileSync(new URL("./viewer/viewer.js", import.meta.url), "
 const VIEWER_CSS = readFileSync(new URL("./viewer/viewer.css", import.meta.url), "utf8");
 
 /** The stylesheet and the script, packed once: they are the same in every file. */
-const VIEWER = gzipSync(Buffer.from(JSON.stringify({ css: VIEWER_CSS, js: VIEWER_JS }), "utf8"), { level: 9 }).toString("base64");
+const VIEWER = gzipSync(Buffer.from(JSON.stringify({ css: VIEWER_CSS, js: VIEWER_JS }), "utf8"), {
+  level: 9,
+}).toString("base64");
 
 /**
- * Unpacks the viewer and starts it.
+ * The one line before the blocks.
+ *
+ * It keeps the browser in standards mode and reading UTF-8, and paints the
+ * page in the viewer's background with the text the same colour — so the plain
+ * text below is never seen flashing by while a large file loads.
+ */
+const FIRST_LINE =
+  '<!DOCTYPE html><meta charset="utf-8"><body style="margin:0;background:#1a1a1e;color:#1a1a1e">';
+
+/**
+ * Clears the page, unpacks the viewer and starts it.
  *
  * Everything it runs came out of this same file. A browser too old to unpack
  * it says so in words rather than showing an empty page.
  */
 const LOADER = [
-  "(async()=>{try{",
-  'const b=Uint8Array.from(atob(document.getElementById("transcript-viewer").textContent),c=>c.charCodeAt(0));',
+  "(async()=>{",
+  "const d=document,g=i=>d.getElementById(i).textContent;let el;",
+  "try{",
+  'const e=JSON.parse(g("transcript-data")),z=g("transcript-viewer");',
+  'd.body.textContent="";',
+  'const m=(n,c)=>d.head.appendChild(Object.assign(d.createElement("meta"),{name:n,content:c}));',
+  'm("viewport","width=device-width, initial-scale=1");m("robots","noindex, nofollow");m("referrer","no-referrer");m("color-scheme","dark");',
+  'el=d.body.appendChild(d.createElement("div"));',
+  "const b=Uint8Array.from(atob(z),c=>c.charCodeAt(0));",
   'const v=JSON.parse(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream("gzip"))).text());',
-  'document.head.appendChild(Object.assign(document.createElement("style"),{textContent:v.css}));',
-  "(0,eval)(v.js)",
-  '}catch(e){document.getElementById("transcript").textContent="This transcript needs an up-to-date browser to open."}})()',
+  'd.head.appendChild(Object.assign(d.createElement("style"),{textContent:v.css}));',
+  "(0,eval)(v.js);",
+  "const r=await UtilTranscript.mount(el,e),p=r&&r.payload;",
+  'if(p)d.title="#"+((p.channel&&p.channel.name)||"transcript")+" \\u00b7 "+((p.guild&&p.guild.name)||"Transcript")',
+  "}catch(x){",
+  'd.body.textContent="This transcript needs an up-to-date browser to open.";d.body.style.cssText="margin:24px;background:#1a1a1e;color:#dfe0e2;font:16px sans-serif"',
+  "}})()",
 ].join("");
 
-const escapeHtml = (value) =>
+/** Text that is safe as page content: it sits in the document itself, outside any script. */
+const safe = (value) =>
   String(value ?? "")
+    .replace(/[\r\n]+/g, " ")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-
-/** Text that is safe inside an HTML comment, which may not contain `--`. */
-const commentSafe = (value) => String(value ?? "").replace(/--+/g, "-").replace(/[<>]/g, "");
+    .replace(/>/g, "&gt;");
 
 /**
- * The plain-text summary at the top of the file.
+ * The two plain-text blocks at the top of the file.
  *
- * For somebody who opens the file in a text editor, or a log that shows its
- * first lines: what this is, without decoding anything.
+ * For somebody who opens the file in a text editor, and for Discord's own file
+ * preview, which shows its first lines: what this is, without decoding anything.
  */
 function summary(payload, stats) {
   const counts = new Map();
@@ -60,19 +86,21 @@ function summary(payload, stats) {
     .map(([key, count]) => {
       const user = payload.users[key] ?? {};
 
-      return `    ${String(count)} - ${commentSafe(user.name)} (${commentSafe(user.id)})`;
+      return `    ${String(count)} - ${safe(user.name)} (${safe(user.id)})`;
     });
+  const exported = new Date(payload.exportedAt).toISOString().replace("T", " ").slice(0, 16);
 
   return [
-    "Transcript",
-    `    Server: ${commentSafe(payload.guild.name)} (${commentSafe(payload.guild.id)})`,
-    `    Channel: ${commentSafe(payload.channel.name)} (${commentSafe(payload.channel.id)})`,
+    "<Server-Info>",
+    `    Server: ${safe(payload.guild.name)} (${safe(payload.guild.id)})`,
+    `    Channel: ${safe(payload.channel.name)} (${safe(payload.channel.id)})`,
     `    Messages: ${String(payload.messages.length)}`,
-    `    Images saved: ${String(stats?.saved ?? 0)}`,
-    `    Images not saved: ${String(stats?.skipped ?? 0)}`,
-    `    Exported: ${new Date(payload.exportedAt).toISOString()}`,
+    ...(payload.truncated ? [`    Messages Skipped: ${String(payload.truncated)} (oldest first, due to the file size limit.)`] : []),
+    `    Images Saved: ${String(stats?.saved ?? 0)}`,
+    `    Images Skipped: ${String(stats?.skipped ?? 0)} (due to the file size limit, or no longer on Discord.)`,
+    `    Exported: ${exported} UTC`,
     "",
-    "Participants",
+    "<User-Info>",
     ...people,
   ].join("\n");
 }
@@ -84,28 +112,16 @@ function summary(payload, stats) {
  */
 export function buildHtml(payload, options = {}) {
   const envelope = pack(payload, { signingKey: options.signingKey });
-  const title = `#${payload.channel.name || "transcript"} · ${payload.guild.name || "Transcript"}`;
 
   return [
-    "<!DOCTYPE html>",
-    `<!--\n${summary(payload, options.stats)}\n-->`,
-    '<html lang="en">',
-    "<head>",
-    '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<meta name="robots" content="noindex, nofollow">',
-    '<meta name="referrer" content="no-referrer">',
-    '<meta name="color-scheme" content="dark">',
-    `<title>${escapeHtml(title)}</title>`,
-    "</head>",
-    '<body style="margin:0;background:#1a1a1e;color:#dfe0e2;font-family:sans-serif">',
-    '<div id="transcript"><noscript>This transcript needs JavaScript to be displayed.</noscript></div>',
+    FIRST_LINE,
+    summary(payload, options.stats),
+    "",
+    "<Base-Transcript>",
     // Base64 and a handful of fixed keys: nothing in either block can close its element.
-    `<script id="transcript-data" type="application/json">${JSON.stringify(envelope)}</script>`,
-    `<script id="transcript-viewer" type="application/octet-stream">${VIEWER}</script>`,
-    `<script>${LOADER}</script>`,
-    "</body>",
-    "</html>",
+    `    <script id="transcript-data" type="application/json">${JSON.stringify(envelope)}</script>` +
+      `<script id="transcript-viewer" type="application/octet-stream">${VIEWER}</script>` +
+      `<script>${LOADER}</script>`,
     "",
   ].join("\n");
 }

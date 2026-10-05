@@ -5,7 +5,7 @@
 // plain JSON: what was said, who said it, and a list of the pictures worth
 // downloading. Nothing is drawn here — the viewer does that, in the browser.
 
-import { emojiUrl, isDiscordUrl, sizedUrl } from "./urls.js";
+import { emojiUrl, isDiscordUrl } from "./urls.js";
 
 /** discord.js's MessageType numbers, for the kinds the viewer draws specially. */
 const KIND = {
@@ -22,11 +22,31 @@ const KIND = {
   46: "poll-result",
 };
 
-/** How wide a picture is ever drawn, doubled for sharp screens. */
-const DEFAULT_MAX_IMAGE_WIDTH = 1100;
+/**
+ * How wide each kind of picture is saved, at most: twice what it is drawn at,
+ * so it stays sharp on a dense screen and no heavier than that. A picture
+ * somebody uploaded has no entry — it may be opened full size to be read, so
+ * its width is the exporter's to choose.
+ */
+const DRAWN = { embed: 880, still: 480, thumbnail: 160, icon: 48 };
 
-/** An embed's picture is drawn at 440px at most; twice that keeps it sharp and no more. */
-const MAX_EMBED_IMAGE_WIDTH = 880;
+/** The permissions worth showing on a profile, most telling first. */
+const NOTABLE_PERMISSIONS = [
+  "Administrator",
+  "ManageGuild",
+  "ManageRoles",
+  "ManageChannels",
+  "ManageMessages",
+  "ManageThreads",
+  "ManageWebhooks",
+  "ManageNicknames",
+  "ManageGuildExpressions",
+  "KickMembers",
+  "BanMembers",
+  "ModerateMembers",
+  "MentionEveryone",
+  "ViewAuditLog",
+];
 
 /** How many of somebody's roles their profile card lists. */
 const MAX_PROFILE_ROLES = 8;
@@ -70,13 +90,12 @@ function mediaKind(type, name) {
 
 /**
  * @param {readonly object[]} messages oldest first
- * @param {{ guild?: object, channel?: object, maxImageWidth?: number, brand?: { name: string, url?: string } }} [context]
+ * @param {{ guild?: object, channel?: object, brand?: { name: string, url?: string } }} [context]
  * @returns {{ payload: object, wanted: object[], participants: object[] }}
  */
 export function collectTranscript(messages, context = {}) {
   const guild = context.guild ?? context.channel?.guild ?? null;
   const channel = context.channel ?? null;
-  const maxWidth = context.maxImageWidth ?? DEFAULT_MAX_IMAGE_WIDTH;
 
   const users = {};
   const roles = {};
@@ -85,10 +104,15 @@ export function collectTranscript(messages, context = {}) {
   /** url → what to download for it. Insertion order is download order within a tier. */
   const wanted = new Map();
 
-  /** Asks for a picture to be embedded. Returns the address the viewer will look it up by. */
-  function want(url, tier, from = url) {
+  /**
+   * Asks for a picture to be embedded. Returns the address the viewer will look it up by.
+   *
+   * `shape` is what lets the downloader ask Discord for a smaller copy: the
+   * picture's own size, and how wide it is ever drawn.
+   */
+  function want(url, tier, from = url, shape = {}) {
     if (typeof url !== "string" || url === "") return undefined;
-    if (!wanted.has(url) && isDiscordUrl(from)) wanted.set(url, { url, from, tier });
+    if (!wanted.has(url) && isDiscordUrl(from)) wanted.set(url, lean({ url, from, tier, ...shape }));
 
     return url;
   }
@@ -137,6 +161,19 @@ export function collectTranscript(messages, context = {}) {
       });
   }
 
+  /**
+   * What somebody may do in the server, for their profile card.
+   *
+   * An administrator may do everything, so that one word is the whole answer.
+   */
+  function permissionsOf(member) {
+    const held = call(member?.permissions, "toArray");
+    if (!Array.isArray(held)) return undefined;
+    if (held.includes("Administrator")) return ["Administrator"];
+
+    return NOTABLE_PERMISSIONS.filter((name) => held.includes(name));
+  }
+
   /** Registers somebody and answers the key messages refer to them by. */
   function person(user, given, webhook = false) {
     if (!user) return undefined;
@@ -163,6 +200,7 @@ export function collectTranscript(messages, context = {}) {
       webhook,
       joined: Number(member?.joinedTimestamp) || undefined,
       roles: topRoles(member),
+      perms: permissionsOf(member),
     });
     if (users[key].display === users[key].name) delete users[key].display;
 
@@ -179,27 +217,27 @@ export function collectTranscript(messages, context = {}) {
       w: Number(item.width) || undefined,
       h: Number(item.height) || undefined,
       spoiler: Boolean(item.spoiler) || text(item.name).startsWith("SPOILER_"),
+      // Saved as a still, so the viewer marks it as the animation it was.
+      gif: kind === "image" && (/gif/i.test(text(item.contentType)) || /\.gif$/i.test(text(item.name))),
       alt: text(item.description),
     });
     if (kind === "image") {
-      const source = text(item.proxyURL) || text(item.url);
-      want(
-        record.url,
-        4,
-        sizedUrl(source, { width: record.w ?? 0, height: record.h ?? 0, maxWidth, type: item.contentType }),
-      );
+      want(record.url, 4, text(item.proxyURL) || text(item.url), {
+        w: record.w,
+        h: record.h,
+        type: text(item.contentType),
+      });
     }
 
     return record;
   }
 
-  function picture(media, tier) {
+  function picture(media, tier, draw) {
     if (!media || typeof media.url !== "string") return undefined;
     const proxied = text(media.proxy_url) || text(media.proxyURL) || media.url;
     const width = Number(media.width) || 0;
     const height = Number(media.height) || 0;
-    const cap = Math.min(maxWidth, MAX_EMBED_IMAGE_WIDTH);
-    want(media.url, tier, sizedUrl(proxied, { width, height, maxWidth: cap, type: media.content_type }));
+    want(media.url, tier, proxied, { w: width, h: height, type: text(media.content_type), draw });
 
     return lean({ url: media.url, w: width || undefined, h: height || undefined });
   }
@@ -209,6 +247,12 @@ export function collectTranscript(messages, context = {}) {
     const plain = raw(item) ?? {};
     const data = plain.data && typeof plain.data === "object" ? plain.data : plain;
     const type = text(data.type) || "rich";
+    // A link's preview picture is kept small, beside its text. What a
+    // transcript is for is what was said; a preview drawn the way Discord draws
+    // it is most of a file's size for a picture nobody posted. A bare GIF or
+    // picture link has nothing but its still, so that is saved a little larger.
+    const preview = data.thumbnail;
+    const bare = (type === "gifv" || type === "image") && !data.title && !data.description;
 
     return lean({
       type: type === "rich" ? undefined : type,
@@ -221,21 +265,21 @@ export function collectTranscript(messages, context = {}) {
         ? lean({
             name: text(data.author.name),
             url: text(data.author.url),
-            icon: picture({ url: data.author.icon_url, proxy_url: data.author.proxy_icon_url }, 3)?.url,
+            icon: picture({ url: data.author.icon_url, proxy_url: data.author.proxy_icon_url }, 3, DRAWN.icon)?.url,
           })
         : undefined,
       footer: data.footer
         ? lean({
             text: text(data.footer.text),
-            icon: picture({ url: data.footer.icon_url, proxy_url: data.footer.proxy_icon_url }, 3)?.url,
+            icon: picture({ url: data.footer.icon_url, proxy_url: data.footer.proxy_icon_url }, 3, DRAWN.icon)?.url,
           })
         : undefined,
       provider: text(data.provider?.name),
       fields: list(data.fields).map((field) =>
         lean({ name: scan(field.name), value: scan(field.value), inline: Boolean(field.inline) }),
       ),
-      image: picture(data.image, 4),
-      thumbnail: picture(data.thumbnail, type === "rich" ? 3 : 4),
+      image: picture(data.image, 4, DRAWN.embed),
+      thumbnail: bare ? picture(preview, 4, DRAWN.still) : picture(preview, 3, DRAWN.thumbnail),
       video: data.video?.url ? { url: text(data.video.url) } : undefined,
     });
   }
@@ -255,13 +299,13 @@ export function collectTranscript(messages, context = {}) {
   function component(item, files) {
     const data = raw(item) ?? {};
     const out = { type: Number(data.type) };
-    const media = (value) => {
+    const media = (value, draw = DRAWN.embed) => {
       const url = text(value?.url);
       // `attachment://name` points at a file on the same message.
       const named = url.startsWith("attachment://") ? files.get(url.slice(13)) : undefined;
       if (named) return lean({ url: named.url, w: named.w, h: named.h });
 
-      return picture(value, 4);
+      return picture(value, 4, draw);
     };
 
     switch (out.type) {
@@ -299,7 +343,8 @@ export function collectTranscript(messages, context = {}) {
         break;
       case 11:
         Object.assign(out, {
-          media: media(data.media),
+          // Drawn at 85px, beside a section's text.
+          media: media(data.media, DRAWN.thumbnail + 10),
           alt: text(data.description),
           spoiler: Boolean(data.spoiler),
         });

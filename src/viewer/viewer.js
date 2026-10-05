@@ -263,7 +263,10 @@ function tile(c, m, o){
   o = o || {};
   var s = src(c, m && m.url), cls = "pic" + (o.spoiler ? " is-spoiler" : "") + (o.cls ? " " + o.cls : "");
   if (!s) return '<span class="' + cls + ' is-lost">' + missing(o.name) + "</span>";
-  var box = o.fill ? null : fit(m.w, m.h, o.maxW || 550, o.maxH || 350);
+  var box = o.fill ? null : fit(m.w, m.h, o.maxW || 400, o.maxH || 300);
+  if (o.link) return '<a class="' + cls + '" href="' + esc(o.link) + '" target="_blank" rel="noopener noreferrer"' + (box ? ' style="width:' + box.w + "px;aspect-ratio:" + box.w + "/" + box.h + '"' : "") + ">" +
+    '<img src="' + esc(s) + '" alt="' + esc(o.alt || o.name || "") + '" loading="lazy" draggable="false" data-e="pic" data-n="' + esc(o.name || "Image") + '">' +
+    (o.badge ? '<span class="pic__badge">' + esc(o.badge) + "</span>" : "") + "</a>";
   return '<span class="' + cls + '" data-zoom role="button" tabindex="0"' + (box ? ' style="width:' + box.w + "px;aspect-ratio:" + box.w + "/" + box.h + '"' : "") + ">" +
     '<img src="' + esc(s) + '" alt="' + esc(o.alt || o.name || "") + '" loading="lazy" draggable="false" data-e="pic" data-n="' + esc(o.name || "Image") + '">' +
     (o.badge ? '<span class="pic__badge">' + esc(o.badge) + "</span>" : "") +
@@ -284,7 +287,7 @@ function fileCard(a, note){
 }
 function attachmentsHtml(c, list){
   if (!list || !list.length) return "";
-  var pics = list.filter(function(a){ return a.kind === "image"; }).map(function(a){ return { media: a, name: a.name, alt: a.alt, spoiler: a.spoiler }; });
+  var pics = list.filter(function(a){ return a.kind === "image"; }).map(function(a){ return { media: a, name: a.name, alt: a.alt, spoiler: a.spoiler, badge: a.gif ? "GIF" : "" }; });
   var rest = list.filter(function(a){ return a.kind !== "image"; });
   return gallery(c, pics) + rest.map(function(a){
     return fileCard(a, a.kind === "video" ? "Video, not saved in the transcript" : a.kind === "audio" ? "Audio, not saved in the transcript" : "File, not saved in the transcript");
@@ -300,12 +303,13 @@ function embedHtml(c, e){
   if ((kind === "image" || kind === "gifv") && !rich) {
     var only = thumb || big;
     if (!only) return "";
-    return '<div class="media">' + tile(c, only, { name: kind === "gifv" ? "GIF" : "Image", badge: kind === "gifv" ? "GIF" : "" }) + "</div>";
+    /* small, and a click goes to the original: the still is what is saved, the link is what was posted */
+    var still = tile(c, only, { name: kind === "gifv" ? "GIF" : "Image", badge: kind === "gifv" ? "GIF" : "", maxW: 240, maxH: 180, link: isHttp(e.url) ? e.url : "" });
+    return '<div class="media">' + still + "</div>";
   }
   /* a video link: the still frame, large, the way Discord shows a player */
   var play = false;
   if (kind === "video" && thumb && !big) { big = thumb; thumb = null; play = true; }
-  if (kind !== "rich" && thumb && !big && thumb.w >= 300 && thumb.w > thumb.h) { big = thumb; thumb = null; }
   if (!rich && !big && !thumb && !e.provider) return "";                 // nothing to draw: no empty box
   var html = '<div class="embed"' + (e.color ? ' style="--bar:' + esc(e.color) + '"' : "") + '><div class="embed__grid' + (thumb && src(c, thumb.url) ? " has-thumb" : "") + '"><div class="embed__main">';
   if (e.provider) html += '<p class="embed__provider">' + plain(e.provider) + "</p>";
@@ -329,7 +333,7 @@ function embedHtml(c, e){
   html += "</div>";
   if (thumb && src(c, thumb.url)) html += '<span class="embed__thumb">' + tile(c, thumb, { name: "Thumbnail", fill: true }) + "</span>";
   html += "</div>";
-  if (big) html += '<div class="embed__image">' + tile(c, big, { name: "Image", maxW: 440, maxH: 300, badge: play ? "VIDEO" : "" }) + "</div>";
+  if (big) html += '<div class="embed__image">' + tile(c, big, { name: "Image", maxW: 400, maxH: 260, badge: play ? "VIDEO" : "" }) + "</div>";
   if ((e.footer && e.footer.text) || e.timestamp) {
     var fi = src(c, e.footer && e.footer.icon), ft = e.footer && e.footer.text ? plain(e.footer.text) : "";
     html += '<p class="embed__footer">' + (fi ? '<img src="' + esc(fi) + '" alt="" loading="lazy" data-e="gone">' : "") + "<span>" + ft + (ft && e.timestamp ? '<span class="embed__dot">•</span>' : "") + (e.timestamp ? esc(stamp(e.timestamp)) : "") + "</span></p>";
@@ -481,6 +485,7 @@ function render(payload, opt){
         (icon ? '<img class="tr-intro__icon" src="' + esc(icon) + '" alt="" data-e="gone">' : '<span class="tr-intro__icon tr-intro__icon--hash">' + ICON.hash + "</span>") +
         '<h1 class="tr-intro__h">Transcript of #' + esc(ch.name || "channel") + "</h1>" +
         '<p class="tr-intro__p">' + (g.name ? "From <b>" + esc(g.name) + "</b>. " : "") + "Exported " + esc(fullDate(new Date(payload.exportedAt || Date.now()))) + ".</p>" +
+        (payload.truncated ? '<p class="tr-intro__note">The ' + plural(payload.truncated, "oldest message") + " " + (payload.truncated === 1 ? "was" : "were") + " left out to keep this file within its size limit.</p>" : "") +
         '<ul class="tr-facts"><li><b>' + msgs.length + "</b> " + (msgs.length === 1 ? "message" : "messages") + "</li><li><b>" + order.length + "</b> " + (order.length === 1 ? "participant" : "participants") + "</li><li><b>" + savedCount + "</b> " + (savedCount === 1 ? "image" : "images") + " saved</li></ul>" +
         (order.length ? '<ul class="tr-people">' + order.slice(0, 24).map(function(k){
           var u = userOf(c, k);
@@ -523,23 +528,30 @@ function check(envelope, trustedKeys){
   }, function(){ return "unknown"; });
 }
 
-/* A person's card: who they are in this server, from what the export saved about them. */
+/* A person's card: who they are in this server, from what the export saved about them.
+   The few facts everybody wants are shown; roles and permissions are folded away behind a
+   line each, so one busy member doesn't fill the screen. */
+var PERM = { ManageGuild: "Manage Server", ModerateMembers: "Timeout Members", ManageGuildExpressions: "Manage Expressions" };
+function permText(name){ return PERM[name] || String(name).replace(/([a-z])([A-Z])/g, "$1 $2"); }
+function fold(title, n, body){
+  return '<details class="tr-pop__fold"><summary><span>' + title + '</span><b>' + n + "</b>" + ICON.chevron + "</summary>" + body + "</details>";
+}
 function profileHtml(c, key){
   var u = userOf(c, key), made = u.id ? createdAt(u.id) : null, count = 0;
   c.p.messages.forEach(function(m){ if (m.author === key) count++; });
-  var roles = (u.roles || []).map(function(id){ return c.roles[id]; }).filter(Boolean);
+  var roles = (u.roles || []).map(function(id){ return c.roles[id]; }).filter(Boolean), perms = u.perms || [];
   var row = function(k, v){ return v ? '<div class="tr-pop__row"><span>' + k + "</span><b>" + v + "</b></div>" : ""; };
-  return '<div class="tr-pop__banner"' + (u.color ? ' style="background:' + esc(u.color) + '"' : "") + "></div>" +
-    '<div class="tr-pop__body">' + avatarHtml(c, key, "tr-pop__av") +
-    '<p class="tr-pop__name">' + esc(shown(u)) + tagHtml(u) + "</p>" +
-    '<p class="tr-pop__user">' + esc(u.name || "") + "</p>" +
-    '<div class="tr-pop__card">' +
-      row("Joined Discord", made ? esc(F_DAY.format(new Date(made))) : "") +
+  return '<div class="tr-pop__top">' + avatarHtml(c, key, "tr-pop__av") +
+      '<div class="tr-pop__who"><p class="tr-pop__name"><span>' + esc(shown(u)) + "</span>" + tagHtml(u) + "</p>" +
+      '<p class="tr-pop__user">' + esc(u.name || "") + "</p></div></div>" +
+    '<div class="tr-pop__facts">' +
+      row(u.bot || u.webhook ? "Created" : "Joined Discord", made ? esc(F_DAY.format(new Date(made))) : "") +
       row("Joined server", u.joined ? esc(F_DAY.format(new Date(u.joined))) : "") +
       row("Messages here", String(count)) +
-      (roles.length ? '<div class="tr-pop__roles">' + roles.map(function(r){ return '<span class="tr-pop__role"><i' + (r.color ? ' style="background:' + esc(r.color) + '"' : "") + "></i>" + esc(r.name) + "</span>"; }).join("") + "</div>" : "") +
-      (u.id ? '<button class="tr-pop__id" type="button" data-copy="' + esc(u.id) + '" title="Copy user ID"><span>ID</span>' + esc(u.id) + "</button>" : "") +
-    "</div></div>";
+    "</div>" +
+    (roles.length ? fold("Roles", roles.length, '<div class="tr-pop__roles">' + roles.map(function(r){ return '<span class="tr-pop__role"><i' + (r.color ? ' style="background:' + esc(r.color) + '"' : "") + "></i>" + esc(r.name) + "</span>"; }).join("") + "</div>") : "") +
+    (perms.length ? fold("Permissions", perms.length, '<div class="tr-pop__roles">' + perms.map(function(p){ return '<span class="tr-pop__role">' + esc(permText(p)) + "</span>"; }).join("") + "</div>") : "") +
+    (u.id ? '<button class="tr-pop__id" type="button" data-copy="' + esc(u.id) + '" title="Copy user ID"><span>ID</span><code>' + esc(u.id) + "</code><em>Copy</em></button>" : "");
 }
 
 /* ---------- the page: the things that answer a click */
@@ -559,7 +571,17 @@ function wire(el, c){
     box.style.left = Math.max(8, Math.min(x, vw - w - 8)) + "px";
     box.style.top = Math.max(8, Math.min(y, vh - h - 8)) + "px";
   }
-  function profile(key, x, y){ if (!pop || !c.users[key]) return; if (menu) menu.hidden = true; pop.innerHTML = profileHtml(c, key); place(pop, x, y); }
+  /* The card opens to the right of the name or avatar it belongs to, level with its top — the
+     same place every time, whichever part of it was clicked. In a message that is the avatar's
+     column, so a name and its avatar open the card in one spot. */
+  function profile(key, from){
+    if (!pop || !c.users[key]) return;
+    if (menu) menu.hidden = true;
+    var row = from.closest && from.closest(".msg"), anchor = (row && !from.closest(".md, .ref") && row.querySelector(".av")) || from;
+    var r = anchor.getBoundingClientRect();
+    pop.innerHTML = profileHtml(c, key);
+    place(pop, r.right + 10, r.top);
+  }
   function openMenu(items, x, y){
     if (!menu || !items.length) return;
     if (pop) pop.hidden = true;
@@ -574,7 +596,7 @@ function wire(el, c){
     var sp = t.closest(".spoiler, .is-spoiler");
     if (sp && !sp.classList.contains("is-open")) { sp.classList.add("is-open"); return true; }
     var who = t.closest("[data-user]");
-    if (who && !t.closest(".ref")) { var r = who.getBoundingClientRect(); profile(who.getAttribute("data-user"), e && e.clientX ? e.clientX + 12 : r.right + 8, e && e.clientY ? e.clientY - 20 : r.top); return true; }
+    if (who && !t.closest(".ref")) { profile(who.getAttribute("data-user"), who); return true; }
     var jump = t.closest("[data-jump]");
     if (jump) { jumpTo(jump.getAttribute("data-jump")); return true; }
     var pic = t.closest("[data-zoom]");
@@ -601,7 +623,7 @@ function wire(el, c){
     if (who) {
       var key = who.getAttribute("data-user"), u = c.users[key];
       if (u) {
-        items.push(["Profile", function(){ profile(key, e.clientX, e.clientY); }]);
+        items.push(["Profile", function(){ profile(key, who); }]);
         items.push(["Copy Username", function(){ copy(u.name || "", "Copied username"); }]);
         if (u.id) items.push(["Copy User ID", function(){ copy(u.id, "Copied ID"); }]);
       }

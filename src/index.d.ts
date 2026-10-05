@@ -36,6 +36,12 @@ export interface CreateTranscriptOptions {
   readonly messages?: readonly unknown[];
   /** Ed25519 private key, base64 PKCS#8 (what `generateKeys` returns) or PEM. Unsigned without one. */
   readonly signingKey?: string;
+  /**
+   * The largest the whole file may be, in bytes: words, pictures and viewer
+   * together. Pictures give way first, then the oldest messages. No limit by
+   * default, beyond the picture budget below.
+   */
+  readonly maxFileBytes?: number;
   /** Download pictures into the file. Default true. */
   readonly images?: boolean;
   /** How pictures are downloaded. Default the global `fetch`. Only Discord's hosts are ever asked. */
@@ -46,7 +52,10 @@ export interface CreateTranscriptOptions {
   readonly maxSingleBytes?: number;
   /** How many posted pictures to save. Avatars, emoji and stickers are not counted. Default no cap. */
   readonly maxPictures?: number;
-  /** Wider pictures are scaled down to this by Discord before download. Default 1100. */
+  /**
+   * Wider pictures are scaled down to this by Discord before download. Default
+   * 1100, or 640 / 960 / 1280 chosen from `maxFileBytes` when that is set.
+   */
   readonly maxImageWidth?: number;
   /** Credited in the transcript's footer. */
   readonly brand?: TranscriptBrand;
@@ -55,7 +64,11 @@ export interface CreateTranscriptOptions {
 export interface CreatedTranscript {
   /** The whole file: data, styles and viewer in one document. */
   readonly html: string;
+  /** The file's size in bytes, as it will be uploaded. */
+  readonly bytes: number;
   readonly messageCount: number;
+  /** Older messages left out to fit `maxFileBytes`. Zero when everything fitted. */
+  readonly truncated: number;
   /** Busiest first. */
   readonly participants: readonly TranscriptParticipant[];
   readonly images: ImageStats;
@@ -78,9 +91,18 @@ export type TranscriptPayload = Record<string, unknown> & {
 };
 
 export interface WantedAsset {
+  /** The address the viewer looks the picture up by. */
   readonly url: string;
+  /** Where it is downloaded from: Discord's own copy. */
   readonly from: string;
+  /** Download order: faces and icons first, posted pictures last. */
   readonly tier: number;
+  /** The picture's own size, when known, so a smaller copy can be asked for. */
+  readonly w?: number;
+  readonly h?: number;
+  readonly type?: string;
+  /** The widest it is ever saved, when it is only drawn small. */
+  readonly draw?: number;
 }
 
 /** Exports a discord.js text channel or thread as one self-contained HTML file. */
@@ -109,7 +131,6 @@ export function collectTranscript(
   context?: {
     readonly guild?: unknown;
     readonly channel?: unknown;
-    readonly maxImageWidth?: number;
     readonly brand?: TranscriptBrand;
   },
 ): {
@@ -126,6 +147,7 @@ export function embedAssets(
     readonly maxTotalBytes?: number;
     readonly maxSingleBytes?: number;
     readonly maxPictures?: number;
+    readonly maxImageWidth?: number;
     readonly timeoutMs?: number;
     readonly concurrency?: number;
   },

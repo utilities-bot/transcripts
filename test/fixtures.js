@@ -127,6 +127,7 @@ const MEMBERS = new Map([
       displayName: "Jonas",
       displayColor: 0xf1c40f,
       joinedTimestamp: Date.UTC(2025, 3, 9),
+      permissions: { toArray: () => ["SendMessages", "KickMembers", "ManageMessages", "ViewChannel"] },
       roles: { cache: [EVERYONE, { id: IDS.staffRole, name: "Support Team", color: 0xf1c40f, position: 5 }, { id: "1374150000000000009", name: "Billing", color: 0x57d38c, position: 3 }] },
     },
   ],

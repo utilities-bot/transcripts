@@ -110,18 +110,42 @@ describe("the file", () => {
     assert.equal(html.includes(".tr-bar"), false, "the stylesheet is not written out");
     assert.equal(html.includes("function render("), false, "the script is not written out");
     assert.match(html, /<script id="transcript-viewer" type="application\/octet-stream">[A-Za-z0-9+\/=]+<\/script>/);
-    assert.ok(html.length < 60_000, `a transcript with no pictures is small (${String(html.length)} bytes)`);
+    assert.ok(html.length < 50_000, `a transcript with no pictures is small (${String(html.length)} bytes)`);
   });
 
-  it("says what it is in plain text at the top", () => {
+  /**
+   * Read as text, a file is one line for the browser and then three blocks, in
+   * the order somebody skimming it wants: where, who, and the transcript.
+   */
+  it("is three plain blocks: the server, the people, and the transcript", () => {
     const html = buildHtml(collected().payload, { stats: { saved: 3, skipped: 1 } });
-    const head = html.slice(0, 600);
+    const lines = html.split("\n");
 
-    assert.match(head, /Server: Utilities Support \(1374147741403320350\)/);
-    assert.match(head, /Channel: ticket-0007/);
-    assert.match(head, /Messages: 12/);
-    assert.match(head, /Images saved: 3/);
-    assert.match(head, /6 - mira\.k/);
+    assert.match(lines[0], /^<!DOCTYPE html><meta charset="utf-8">/);
+    assert.deepEqual(lines.slice(1, 8), [
+      "<Server-Info>",
+      "    Server: Utilities Support (1374147741403320350)",
+      "    Channel: ticket-0007 (1489260905819541635)",
+      "    Messages: 12",
+      "    Images Saved: 3",
+      "    Images Skipped: 1 (due to the file size limit, or no longer on Discord.)",
+      lines[7],
+    ]);
+    assert.match(lines[7], /^    Exported: \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
+    assert.deepEqual(lines.slice(8, 13), ["", "<User-Info>", "    6 - mira.k (497562304498368513)", "    3 - Utilities (1359000000000000001)", "    3 - jonas (612345678901234567)"]);
+    assert.deepEqual(lines.slice(13, 15), ["", "<Base-Transcript>"]);
+    assert.equal(lines.length, 17, "nothing else: the last block is one line, then the file ends");
+  });
+
+  /** Those blocks are page content now, so a server or a person named in markup must not become any. */
+  it("writes names into the plain blocks as text, never as markup", () => {
+    const { payload } = collected();
+    payload.guild.name = '<script>alert(1)</script>';
+    payload.users[SAMPLE_IDS.mira].name = "</Server-Info><img src=x onerror=alert(2)>";
+    const head = buildHtml(payload).split("<Base-Transcript>")[0];
+
+    assert.equal(/<script|<img/i.test(head), false);
+    assert.match(head, /Server: &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
 
   it("is reported modified when its data is edited", () => {
@@ -158,6 +182,35 @@ describe("collecting messages", () => {
     assert.equal(jonas.joined, Date.UTC(2025, 3, 9));
     assert.deepEqual(jonas.roles, [SAMPLE_IDS.staffRole, "1374150000000000009"], "highest first, without @everyone");
     assert.equal(payload.roles["1374150000000000009"].name, "Billing");
+  });
+
+  it("keeps what somebody may do in the server, and one word for an administrator", () => {
+    const { payload } = collected();
+
+    assert.deepEqual(payload.users[SAMPLE_IDS.jonas].perms, ["ManageMessages", "KickMembers"], "the telling ones, in a fixed order");
+    assert.equal(payload.users[SAMPLE_IDS.mira].perms, undefined);
+  });
+
+  /**
+   * What was said is the transcript; a preview is decoration. Drawn the way
+   * Discord draws it, one link's picture was most of a file's size.
+   */
+  it("keeps a link's preview picture small, and a bare GIF link's still only a little larger", () => {
+    const preview = { url: "https://images-ext-1.discordapp.net/external/a/og.png", proxy_url: "https://images-ext-1.discordapp.net/external/a/og.png", width: 1200, height: 630 };
+    const message = (embed) => ({ ...sampleMessages()[1], embeds: [embed] });
+    const { payload, wanted } = collectTranscript(
+      [
+        message({ type: "link", title: "Utilities", url: "https://utilities.best", thumbnail: preview }),
+        message({ type: "gifv", url: "https://klipy.com/gifs/x", thumbnail: { ...preview, url: preview.url + "?gif" }, video: { url: "https://klipy.com/x.mp4" } }),
+      ],
+      { channel: CHANNEL },
+    );
+    const html = viewer.render(payload, {});
+
+    assert.equal(wanted.find((item) => item.url === preview.url).draw, 160, "fetched at the size it is drawn");
+    assert.equal(wanted.find((item) => item.url === preview.url + "?gif").draw, 480);
+    assert.match(html, /class="embed__thumb"/, "the link's picture sits beside its text");
+    assert.match(html, /<a class="pic" href="https:\/\/klipy\.com\/gifs\/x" target="_blank"/, "the still opens what was posted");
   });
 
   it("keeps a forwarded message's own content, attachments and origin", () => {
@@ -239,6 +292,43 @@ describe("saving pictures into the file", () => {
     assert.equal(calls.some((url) => url.includes("banner.png")), false, "a picture past the cap is never downloaded");
   });
 
+  /**
+   * One 4K screenshot must not be the whole transcript. A picture over its
+   * share is asked for again at half the width until it fits.
+   */
+  it("asks for a narrower copy of a picture that is too heavy, rather than dropping it", async () => {
+    const calls = [];
+    const fetcher = (input) => {
+      const url = new URL(String(input));
+      calls.push(Number(url.searchParams.get("width")));
+      const bytes = Number(url.searchParams.get("width")) <= 300 ? 20_000 : 900_000;
+
+      return Promise.resolve(new Response(Buffer.alloc(bytes, 1), { headers: { "content-type": "image/webp" } }));
+    };
+    const payload = { assets: {} };
+    const picture = { url: "https://cdn.discordapp.com/attachments/1/2/huge.png", from: "https://media.discordapp.net/attachments/1/2/huge.png", tier: 4, w: 3840, h: 2160, type: "image/png" };
+    const stats = await embedAssets(payload, [picture], { fetch: fetcher, maxTotalBytes: 200_000 });
+
+    assert.deepEqual(calls, [1100, 550, 275], "the widest allowed first, then half, then half again");
+    assert.equal(stats.saved, 1);
+    assert.equal(stats.bytes, 20_000);
+  });
+
+  it("caps a tall picture by its height as well as a wide one by its width", () => {
+    const tall = new URL(sizedUrl("https://media.discordapp.net/attachments/1/2/phone.png", { width: 1170, height: 9000, maxWidth: 1000, type: "image/png" }));
+
+    assert.equal(tall.searchParams.get("height"), "1500");
+    assert.equal(tall.searchParams.get("width"), "195");
+  });
+
+  it("stops asking once the budget is spent", async () => {
+    const calls = [];
+    const { payload, wanted } = collected();
+    await embedAssets(payload, wanted, { fetch: fakeFetch(calls), maxTotalBytes: 1_000, concurrency: 2 });
+
+    assert.ok(calls.length <= 2, `asked for ${String(calls.length)} of ${String(wanted.length)}`);
+  });
+
   /** An embed can point anywhere; a bot that fetched it could be aimed at its own network. */
   it("downloads nothing that is not Discord's", async () => {
     const calls = [];
@@ -270,11 +360,15 @@ describe("saving pictures into the file", () => {
     assert.equal(stats.saved, 0);
   });
 
-  it("leaves a GIF as it is, so it stays animated", () => {
-    const gif = "https://media.discordapp.net/attachments/1/2/party.gif?ex=1";
+  /** One animation can outweigh the rest of a transcript; what matters is that it was there. */
+  it("saves an uploaded GIF as a small still, and leaves a custom emoji moving", () => {
+    const gif = new URL(sizedUrl("https://media.discordapp.net/attachments/1/2/party.gif?ex=1", { width: 4000, height: 3000, maxWidth: 1100 }));
+    const emoji = emojiUrl("123456789012345678", true);
 
-    assert.equal(sizedUrl(gif, { width: 4000, height: 3000, maxWidth: 1100, type: "image/gif" }), gif);
-    assert.equal(isDiscordUrl(gif), true);
+    assert.equal(gif.searchParams.get("format"), "webp");
+    assert.equal(gif.searchParams.get("width"), "1100");
+    assert.equal(sizedUrl(emoji, { width: 0, height: 0, maxWidth: 1100 }), emoji);
+    assert.equal(isDiscordUrl(emoji), true);
   });
 });
 
@@ -393,6 +487,41 @@ describe("createTranscript", () => {
     assert.equal(result.images.skipped, 0);
     assert.equal(result.participants[0].username, "mira.k");
     assert.equal(verifyTranscript(result.html), "intact");
+  });
+
+  /**
+   * The limit is on the whole file — words, pictures and viewer together —
+   * because that is what a plan is sold as and what an upload is measured by.
+   */
+  it("keeps the whole file under a size limit, leaving pictures out to do it", async () => {
+    const free = await createTranscript(CHANNEL, { messages: sampleMessages(), fetch: fakeFetch(), maxFileBytes: 60_000 });
+    const roomy = await createTranscript(CHANNEL, { messages: sampleMessages(), fetch: fakeFetch(), maxFileBytes: 2_500_000 });
+
+    assert.ok(free.bytes <= 60_000, `${String(free.bytes)} bytes`);
+    assert.equal(free.bytes, Buffer.byteLength(free.html));
+    assert.ok(free.images.skipped > 0 && free.images.saved > 0, "some pictures fit and some did not");
+    assert.equal(free.messageCount, 12, "every message is still there");
+    assert.equal(roomy.images.skipped, 0);
+    assert.ok(roomy.bytes > free.bytes);
+  });
+
+  it("drops the oldest messages when the words alone are over the limit, and says so", async () => {
+    const long = Array.from({ length: 60 }, () => sampleMessages()).flat().map((message, index) => ({
+      ...message,
+      id: String(1489260905819600000n + BigInt(index)),
+      createdTimestamp: 1_790_000_000_000 + index * 1000,
+      content: `Line ${String(index)} ${Math.random().toString(36).repeat(12)}`,
+    }));
+    const result = await createTranscript(CHANNEL, { messages: long, images: false, maxFileBytes: 42_000 });
+    const { payload } = readTranscript(result.html);
+
+    assert.ok(result.bytes <= 42_000, `${String(result.bytes)} bytes`);
+    assert.ok(result.truncated > 0 && result.messageCount < long.length);
+    assert.equal(result.messageCount + result.truncated, long.length);
+    assert.equal(payload.messages.at(-1).id, long.at(-1).id, "the newest message is the one that is kept");
+    assert.equal(payload.truncated, result.truncated);
+    assert.match(result.html, /Messages Skipped: \d+ \(oldest first/);
+    assert.match(viewer.render(payload, {}), /left out to keep this file within its size limit/);
   });
 
   it("pages through a channel's history, newest first, and returns it oldest first", async () => {
