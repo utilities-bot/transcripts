@@ -45,7 +45,7 @@ const LOADER = [
   "const d=document,g=i=>d.getElementById(i).textContent;",
   "try{",
   'const e=JSON.parse(g("transcript-data")),z=g("transcript-viewer");',
-  'd.body.textContent="";d.body.style.cssText="margin:0;background:#1a1a1e";d.documentElement.lang="en";',
+  'd.body.textContent="";d.body.style.cssText="margin:0;background:#323339";d.documentElement.lang="en";',
   'const m=(n,c)=>d.head.appendChild(Object.assign(d.createElement("meta"),{name:n,content:c}));',
   'm("viewport","width=device-width, initial-scale=1");m("robots","noindex, nofollow");m("referrer","no-referrer");m("color-scheme","dark");',
   'const el=d.body.appendChild(d.createElement("div"));',
@@ -56,7 +56,7 @@ const LOADER = [
   "const r=await UtilTranscript.mount(el,e),p=r&&r.payload;",
   'if(p)d.title="#"+((p.channel&&p.channel.name)||"transcript")+" \\u00b7 "+((p.guild&&p.guild.name)||"Transcript")',
   "}catch(x){",
-  'd.body.textContent="This transcript needs an up-to-date browser to open.";d.body.style.cssText="margin:24px;background:#1a1a1e;color:#dfe0e2;font:16px sans-serif"',
+  'd.body.textContent="This transcript needs an up-to-date browser to open.";d.body.style.cssText="margin:24px;background:#323339;color:#dfe0e2;font:16px sans-serif"',
   "}})()",
 ].join("");
 
