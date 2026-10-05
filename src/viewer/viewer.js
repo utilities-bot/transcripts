@@ -709,19 +709,48 @@ function wire(el, c){
   });
   if (root.addEventListener) root.addEventListener("scroll", function(){ if (menu) menu.hidden = true; }, { passive: true });
 
-  /* search: hides what doesn't match, by text or by who said it */
-  var find = el.querySelector("#trFind"), found = el.querySelector("#trFound");
-  if (find) find.addEventListener("input", function(){
-    var q = find.value.trim().toLowerCase(), n = 0;
-    Array.prototype.forEach.call(el.querySelectorAll("[data-mid]"), function(node){
-      var m = c.byId[node.getAttribute("data-mid")] || {}, u = c.users[m.author] || {};
-      var hit = !q || node.textContent.toLowerCase().indexOf(q) >= 0 || (u.name || "").toLowerCase().indexOf(q) >= 0 || shown(u).toLowerCase().indexOf(q) >= 0;
-      node.classList.toggle("is-out", !hit); if (hit) n++;
+  /* Search highlights every match where it stands and steps through them: nothing is hidden, so
+     the conversation around a match is still there to read. Enter goes to the next match,
+     Shift+Enter to the one before. */
+  var find = el.querySelector("#trFind"), found = el.querySelector("#trFound"), log = el.querySelector(".tr-log"), hits = [], at = -1, findT = 0;
+  function clearHits(){
+    hits.forEach(function(m){ var p = m.parentNode; if (p) { m.replaceWith(document.createTextNode(m.textContent)); p.normalize(); } });
+    hits = []; at = -1;
+  }
+  function show(i, scroll){
+    if (!hits.length) { if (found) found.textContent = find.value.trim() ? "No results" : ""; return; }
+    if (hits[at]) hits[at].classList.remove("is-on");
+    at = (i + hits.length) % hits.length;
+    hits[at].classList.add("is-on");
+    if (scroll) hits[at].scrollIntoView({ block: "center" });
+    if (found) found.textContent = (at + 1) + " of " + hits.length;
+  }
+  function search(){
+    clearHits();
+    var q = find.value.trim().toLowerCase();
+    if (!q || !log) { show(0, false); return; }
+    /* collect the text first, then wrap: changing the page while walking it would skip nodes */
+    var walk = document.createTreeWalker(log, 4), nodes = [], n;
+    while ((n = walk.nextNode())) if (n.nodeValue.toLowerCase().indexOf(q) >= 0) nodes.push(n);
+    nodes.forEach(function(node){
+      var text = node.nodeValue, low = text.toLowerCase(), from = 0, i, frag = document.createDocumentFragment();
+      while ((i = low.indexOf(q, from)) >= 0 && hits.length < 2000) {
+        frag.appendChild(document.createTextNode(text.slice(from, i)));
+        var m = document.createElement("mark"); m.className = "hit"; m.textContent = text.slice(i, i + q.length);
+        frag.appendChild(m); hits.push(m); from = i + q.length;
+      }
+      frag.appendChild(document.createTextNode(text.slice(from)));
+      node.parentNode.replaceChild(frag, node);
     });
-    Array.prototype.forEach.call(el.querySelectorAll(".group"), function(g){ g.classList.toggle("is-out", !g.querySelector(".msg:not(.is-out)")); });
-    el.querySelector(".tr").classList.toggle("is-finding", !!q);
-    if (found) found.textContent = q ? n + (n === 1 ? " result" : " results") : "";
-  });
+    show(0, true);
+  }
+  if (find) {
+    find.addEventListener("input", function(){ clearTimeout(findT); findT = setTimeout(search, 120); });
+    find.addEventListener("keydown", function(e){
+      if (e.key === "Enter") { e.preventDefault(); if (hits.length) show(at + (e.shiftKey ? -1 : 1), true); }
+      if (e.key === "Escape") { find.value = ""; search(); find.blur(); }
+    });
+  }
 
   /* a picture that will not load: an emoji falls back to its text, an avatar to an initial,
      anything else to a line saying it is gone. Listened for here because "error" does not bubble. */

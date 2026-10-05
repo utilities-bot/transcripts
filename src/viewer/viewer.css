@@ -40,9 +40,9 @@ html,body{margin:0;background:#323339}
 .tr-find input::-webkit-search-cancel-button{display:none}
 .tr-find span{flex:none;font-size:12px;white-space:nowrap}
 .tr-find:focus-within{background:#26272b;color:var(--text)}
-.is-out{display:none!important}
-.is-finding .day{display:none}
-.is-finding .msg .msg__at{opacity:1}
+/* a search match, and the one the reader is on */
+.hit{padding:0 1px;border-radius:2px;background:rgba(240,178,50,.32);color:inherit}
+.hit.is-on{background:#f0b232;color:#1e1f22}
 
 /* The whole page is drawn at seven-eighths size: Discord's proportions, a little further away.
    The profile card, menu and note float outside it and are sized on their own. */
