@@ -88,6 +88,20 @@ function mediaKind(type, name) {
   return "file";
 }
 
+/** `audio/ogg` out of `audio/ogg; codecs=opus`, and nothing that is not sound or video. */
+function mediaType(type) {
+  const mime = text(type).toLowerCase().split(";")[0].trim();
+
+  return /^(audio|video)\/[a-z0-9.+-]{1,40}$/.test(mime) ? mime : undefined;
+}
+
+/** A voice message's waveform: base64 of up to 256 loudness samples, as Discord sends it. */
+function waveform(value) {
+  const wave = text(value);
+
+  return /^[A-Za-z0-9+/]{4,400}={0,2}$/.test(wave) ? wave : undefined;
+}
+
 /**
  * @param {readonly object[]} messages oldest first
  * @param {{ guild?: object, channel?: object, brand?: { name: string, url?: string } }} [context]
@@ -220,6 +234,11 @@ export function collectTranscript(messages, context = {}) {
       // Saved as a still, so the viewer marks it as the animation it was.
       gif: kind === "image" && (/gif/i.test(text(item.contentType)) || /\.gif$/i.test(text(item.name))),
       alt: text(item.description),
+      // What a player needs: the real type (a saved file is kept as plain
+      // bytes), and for a voice message its length and the shape of its sound.
+      mime: kind === "audio" || kind === "video" ? mediaType(item.contentType) : undefined,
+      secs: kind === "audio" ? Number(item.duration ?? item.duration_secs) || undefined : undefined,
+      wave: kind === "audio" ? waveform(item.waveform) : undefined,
     });
     if (kind === "image") {
       want(record.url, 4, text(item.proxyURL) || text(item.url), {

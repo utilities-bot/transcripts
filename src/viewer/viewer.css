@@ -204,6 +204,28 @@ a.pic{cursor:pointer}
 .file__get{flex:none;display:flex;margin-left:6px;padding:6px;border-radius:6px;color:var(--muted)}
 .file__get:hover{background:#44454c;color:var(--head)}
 .file__get svg{width:20px;height:20px}
+/* a saved sound or video: its icon is the play button, and the player opens under the file */
+.file__play{flex:none;display:flex;padding:0;border:0;background:none;color:#c9cdfb;cursor:pointer}
+.file__play svg{width:30px;height:30px}
+.file__play:hover{color:#fff}
+.file__play:disabled{color:var(--muted);cursor:default}
+.player{display:block;margin-top:4px;max-width:min(432px,100%)}
+.player--audio{width:432px;height:40px}
+.player--video{max-height:320px;border-radius:8px;background:#000}
+/* a voice message, the way Discord draws one: play, the shape of the sound, how long */
+.voice{display:flex;align-items:center;gap:10px;width:fit-content;max-width:100%;margin-top:4px;padding:8px 14px 8px 8px;border-radius:24px;background:var(--bg-2);border:1px solid var(--edge)}
+.voice__btn{flex:none;display:grid;place-items:center;width:32px;height:32px;padding:0;border:0;border-radius:50%;background:#5865f2;color:#fff;cursor:pointer}
+.voice__btn:hover{background:#4752c4}
+.voice__btn svg{width:16px;height:16px}
+.voice__btn svg+svg,.voice.is-playing .voice__btn svg:first-child{display:none}
+.voice.is-playing .voice__btn svg+svg{display:block}
+.voice__wave{display:flex;align-items:center;gap:2px;height:24px;min-width:0;overflow:hidden;cursor:pointer}
+.voice__wave i{flex:none;width:2px;border-radius:1px;background:#6d6f78}
+.voice__wave i.is-on{background:#fff}
+.voice__time{flex:none;min-width:30px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.voice.is-off .voice__btn{background:#4e5058;color:#b5bac1;cursor:default}
+.voice.is-off .voice__wave{cursor:default}
+.voice__note{margin-top:2px;color:var(--muted);font-size:12px}
 .tr-zoom{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.85);cursor:zoom-out}
 .tr-zoom[hidden]{display:none}
 .tr-zoom img{max-width:100%;max-height:100%;border-radius:4px;box-shadow:0 8px 40px rgba(0,0,0,.5)}

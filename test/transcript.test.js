@@ -130,13 +130,13 @@ describe("the file", () => {
     ]);
     assert.match(lines[3], /^    Created   \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
     assert.deepEqual(lines.slice(4, 16), [
-      "    Messages  12 saved",
+      "    Messages  13 saved",
       "    Images    3 saved, 1 skipped",
       "    Files     0 saved",
       "    Skipped   over the file size limit, or no longer on Discord",
       "",
       "<Participants>",
-      "    6  mira.k     497562304498368513",
+      "    7  mira.k     497562304498368513",
       "    3  Utilities  1359000000000000001",
       "    3  jonas      612345678901234567",
       "",
@@ -251,7 +251,7 @@ describe("collecting messages", () => {
 
   it("counts who did the talking, busiest first, by username", () => {
     assert.deepEqual(collected().participants, [
-      { userId: SAMPLE_IDS.mira, username: "mira.k", messageCount: 6 },
+      { userId: SAMPLE_IDS.mira, username: "mira.k", messageCount: 7 },
       { userId: SAMPLE_IDS.bot, username: "Utilities", messageCount: 3 },
       { userId: SAMPLE_IDS.jonas, username: "jonas", messageCount: 3 },
     ]);
@@ -288,7 +288,7 @@ describe("saving pictures into the file", () => {
     // Whatever Discord called it, it is stored as bytes: nothing saved can be opened as a page.
     assert.match(payload.assets[csv.url], /^data:application\/octet-stream;base64,/);
     assert.equal(Buffer.from(payload.assets[csv.url].split(",")[1], "base64").toString(), "order,amount\nUT-48213,4.99\nUT-48213,4.99\n");
-    assert.deepEqual(stats.files, { saved: 1, skipped: 1, bytes: 41 }, "the video is gone from Discord, and is counted as not saved");
+    assert.deepEqual(stats.files, { saved: 2, skipped: 1, bytes: 41 + 16044 }, "the video is gone from Discord, and is counted as not saved");
   });
 
   /**
@@ -499,6 +499,60 @@ describe("the viewer", () => {
   });
 
   /** Only plain bytes may sit behind a download link: a page smuggled in as a "file" is refused. */
+  /**
+   * A voice message is drawn as Discord draws one, and plays from the file's
+   * own bytes. The player is made on the press, so the page carries only what
+   * says which file and what kind of sound it is.
+   */
+  it("draws a saved voice message as a player: play, the shape of the sound, how long", async () => {
+    const { payload, wanted } = collected();
+    await embedAssets(payload, wanted, { fetch: fakeFetch() });
+    const html = viewer.render(payload, {});
+    const voice = /<div class="voice"[^>]*>.*?<\/div>/.exec(html)?.[0] ?? "";
+
+    assert.match(voice, /data-play="https:\/\/cdn\.discordapp\.com\/attachments\/1\/22\/voice-message\.wav\?ex=1"/);
+    assert.match(voice, /data-mime="audio\/wav"/);
+    assert.match(voice, /data-secs="2"/);
+    assert.equal(voice.match(/<i style="height:\d+%"><\/i>/g)?.length, 40, "the waveform, as forty bars");
+    assert.match(voice, /<span class="voice__time">0:02<\/span>/);
+    assert.equal(/<button[^>]*disabled/.test(voice), false);
+  });
+
+  it("says so when a voice message could not be saved, and offers nothing to press", () => {
+    const html = viewer.render(collected().payload, {});
+
+    assert.match(html, /<div class="voice is-off" data-secs="2"><button type="button" class="voice__btn" disabled/);
+    assert.equal(html.includes("data-play="), false);
+    assert.match(html, /Voice message \u00b7 Not saved/);
+  });
+
+  it("keeps a voice message's type and waveform only when they are what they should be", () => {
+    const voice = (extra) =>
+      collectTranscript(
+        [{ ...sampleMessages()[0], embeds: [], components: [], attachments: [{ name: "v.ogg", size: 9, url: "https://cdn.discordapp.com/attachments/1/2/v.ogg", ...extra }] }],
+        { channel: CHANNEL },
+      ).payload.messages[0].attachments[0];
+
+    assert.equal(voice({ contentType: "audio/ogg; codecs=opus", waveform: "AAEC", duration_secs: 3.4 }).mime, "audio/ogg");
+    assert.equal(voice({ contentType: "audio/ogg", waveform: "AAEC", duration_secs: 3.4 }).secs, 3.4);
+    assert.equal(voice({ contentType: 'audio/ogg"><script>', waveform: "AAEC" }).mime, undefined);
+    assert.equal(voice({ contentType: "audio/ogg", waveform: '"><script>alert(1)</script>' }).wave, undefined);
+  });
+
+  it("gives a saved video or sound a play button, and one that was not saved none", async () => {
+    const { payload, wanted } = collected();
+    await embedAssets(payload, wanted, { fetch: fakeFetch() });
+    const extras = payload.messages.find((one) => one.attachments?.some((file) => file.name === "screen-recording.mp4"));
+    const video = extras.attachments.find((file) => file.name === "screen-recording.mp4");
+
+    assert.equal(viewer.render(payload, {}).includes("data-media="), false, "Discord no longer has the video");
+
+    payload.assets[video.url] = "data:application/octet-stream;base64,AAAA";
+    const html = viewer.render(payload, {});
+
+    assert.match(html, /<button type="button" class="file__play" data-media="[^"]*screen-recording\.mp4\?ex=1" data-mime="video\/mp4" data-kind="video"/);
+  });
+
   it("refuses a saved file that is not plain bytes", () => {
     const { payload } = collected();
     const csv = payload.messages.flatMap((message) => message.attachments ?? []).find((file) => file.name === "orders-export.csv");
@@ -523,15 +577,15 @@ describe("the viewer", () => {
     assert.deepEqual(rows.slice(0, 5), [
       ["Server", "Utilities Support 1374147741403320350"],
       ["Channel", "#ticket-0007 1489260905819541635"],
-      ["Messages", "12"],
+      ["Messages", "13"],
       ["Images", "10"],
-      ["Files", "1"],
+      ["Files", "2"],
     ]);
     assert.match(rows[5][1], /^1d/);
     // A date in the reader's own time, then the same moment in UTC.
     assert.match(rows[6][1], /2026.* \(2026-10-05 14:02 UTC\)$/);
     assert.match(rows[7][1], / \(\d{4}-\d\d-\d\d \d\d:\d\d UTC\)$/);
-    assert.match(html, /<b>#ticket-0007<\/b><span class="tr-top__line"><span>Utilities Support<\/span><span>12 messages<\/span><span>1d/);
+    assert.match(html, /<b>#ticket-0007<\/b><span class="tr-top__line"><span>Utilities Support<\/span><span>13 messages<\/span><span>1d/);
     assert.match(list, /data-copy="1374147741403320350"/);
     assert.equal(/Exported|Time zone|First message|Last message|skipped/.test(list), false);
   });
@@ -583,7 +637,7 @@ describe("the viewer", () => {
     const keys = generateKeys();
     const { envelope } = readTranscript(buildHtml(collected().payload, { signingKey: keys.privateKey }));
 
-    assert.equal((await viewer.decode(envelope)).messages.length, 12);
+    assert.equal((await viewer.decode(envelope)).messages.length, 13);
     assert.equal(await viewer.check(envelope, [keys.publicKey]), "verified");
     assert.equal(await viewer.check(envelope, []), "intact");
   });
@@ -605,11 +659,11 @@ describe("createTranscript", () => {
       fetch: fakeFetch(),
     });
 
-    assert.equal(result.messageCount, 12);
+    assert.equal(result.messageCount, 13);
     assert.equal(result.images.skipped, 0);
-    assert.deepEqual(result.files, { saved: 1, skipped: 1, bytes: 41 });
-    assert.match(result.html, /^    Images    10 saved\n    Files     1 saved, 1 skipped\n    Skipped   over the file size limit, or no longer on Discord$/m);
-    assert.deepEqual(readTranscript(result.html).payload.stats, { images: { saved: 10, skipped: 0 }, files: { saved: 1, skipped: 1 } });
+    assert.deepEqual(result.files, { saved: 2, skipped: 1, bytes: 41 + 16044 });
+    assert.match(result.html, /^    Images    10 saved\n    Files     2 saved, 1 skipped\n    Skipped   over the file size limit, or no longer on Discord$/m);
+    assert.deepEqual(readTranscript(result.html).payload.stats, { images: { saved: 10, skipped: 0 }, files: { saved: 2, skipped: 1 } });
     assert.equal(result.participants[0].username, "mira.k");
     assert.equal(verifyTranscript(result.html), "intact");
   });
@@ -625,7 +679,7 @@ describe("createTranscript", () => {
     assert.ok(free.bytes <= 60_000, `${String(free.bytes)} bytes`);
     assert.equal(free.bytes, Buffer.byteLength(free.html));
     assert.ok(free.images.skipped > 0 && free.images.saved > 0, "some pictures fit and some did not");
-    assert.equal(free.messageCount, 12, "every message is still there");
+    assert.equal(free.messageCount, 13, "every message is still there");
     assert.equal(roomy.images.skipped, 0);
     assert.ok(roomy.bytes > free.bytes);
   });

@@ -1,20 +1,40 @@
 # Transcripts
 
-Exports a Discord channel as **one HTML file** that looks like Discord and needs
-nothing else to open: the messages, the pictures and the viewer are all inside
-it. Built for the [Utilities](https://utilities.best) ticket bot.
+Turn a Discord channel into **one HTML file** that looks like Discord and opens
+anywhere. The messages, the pictures, the files and the viewer are all inside
+it, so there is nothing to host and nothing to store.
 
-- **Self-contained.** No script, stylesheet or font is loaded to draw it. It
-  opens from a Discord download, from a website, or from a backup years later.
-- **Pictures are saved.** Images, GIFs, avatars, custom emoji and stickers are
-  written into the file, so they outlive Discord's expiring links. Videos, audio
-  and other files are listed with their name and size, and are not saved.
-- **Draws what Discord draws.** Replies, forwarded messages, slash-command
-  lines, embeds, buttons, select menus, containers and the other layout
-  components, reactions, polls, system lines, and Discord's markdown.
-- **Signed.** Each file can carry an Ed25519 signature, so a changed file says
-  "Modified" instead of passing as the original.
-- **No dependencies**, and no discord.js import: messages are read by shape.
+Built for the [Utilities](https://utilities.best) ticket bot. Free to use in
+yours.
+
+![A transcript](docs/transcript.png)
+
+## Why this one
+
+- **No storage, no server.** The transcript is the file. Post it in a channel
+  and you are done. It opens from a Discord download, offline, or years later.
+- **Pictures and files are saved inside it.** Images, avatars, emoji, stickers
+  and uploads are written into the file, so they outlive Discord's expiring
+  links.
+- **Looks like Discord.** Replies, forwards, slash commands, embeds, buttons,
+  select menus, containers, reactions, polls, system lines and markdown.
+- **Voice messages play.** With their waveform, straight from the file. Saved
+  audio and video play too.
+- **Signed.** A changed file says so instead of passing as the original.
+- **No dependencies.** It does not even import discord.js; it reads messages
+  by shape, so it works with any version.
+
+| Search | Profiles |
+| --- | --- |
+| ![Search](docs/search.png) | ![A profile card](docs/profile.png) |
+
+| Voice messages and files | Details |
+| --- | --- |
+| ![Voice messages and files](docs/files.png) | ![Details](docs/details.png) |
+
+Also in the viewer: right-click to copy text, IDs and message links, click a
+picture to enlarge it, click a reply to jump to it, and a layout that works on
+a phone.
 
 ## Install
 
@@ -24,88 +44,119 @@ npm install github:utilities-bot/transcripts
 
 Node 20 or newer.
 
-## Use
+## Use it in your bot
 
 ```js
 import { createTranscript } from "utilities-transcripts";
 
-const { html, messageCount, participants, images } = await createTranscript(channel, {
-  limit: 1000,                                  // newest messages; null for all
-  signingKey: process.env.TRANSCRIPT_SIGNING_KEY,
-  brand: { name: "Utilities", url: "https://utilities.best" },
-});
+const transcript = await createTranscript(channel);
 
 await logChannel.send({
-  files: [{ attachment: Buffer.from(html, "utf8"), name: `transcript-${channel.name}.html` }],
+  files: [{ attachment: Buffer.from(transcript.html, "utf8"), name: `transcript-${channel.name}.html` }],
 });
 ```
 
-`images` reports `{ saved, skipped, bytes }`. Pictures are skipped when the
-budget is full, when Discord no longer has them, or when they are not hosted by
-Discord.
+That is the whole setup. `channel` is any discord.js text channel or thread.
 
-### Size
+### Options
 
-A bot can upload 10 MB to an ordinary server, so pictures have a budget:
-6.5 MB in total and 4 MB each by default (`maxTotalBytes`, `maxSingleBytes`).
-Small things everybody sees are saved first (avatars, emoji), then pictures in
-the order they were posted. Pictures wider than 1100 px are scaled down by
-Discord's own media proxy before download (`maxImageWidth`), which is why no
-image library is needed. GIFs are left alone so they stay animated.
+All optional.
 
-### Signing
-
-```bash
-npm run keygen
+```js
+const transcript = await createTranscript(channel, {
+  limit: 1000,                // newest messages to include; null for the whole channel
+  maxFileBytes: 10_000_000,   // keep the whole file under this size
+  signingKey: process.env.TRANSCRIPT_SIGNING_KEY,
+  brand: { name: "My Bot", url: "https://example.com" },   // credited in the footer
+});
 ```
 
-prints a private key and a public key. Put the private key in the exporter's
-environment (never in a repository). The public key is not a secret.
+| Option | What it does |
+| --- | --- |
+| `limit` | How many of the newest messages to include. Default `1000`. |
+| `maxFileBytes` | The largest the file may be. Messages come first, then pictures, then other files; whatever does not fit is left out and counted. A bot can upload 10 MB to an ordinary server. |
+| `signingKey` | Signs the file. See [Signing](#signing). |
+| `brand` | Your bot's name and link, shown in the footer. |
+| `images` | `false` saves no pictures or files at all. |
+
+### What you get back
+
+```js
+transcript.html          // the file
+transcript.bytes         // its size
+transcript.messageCount  // messages in it
+transcript.truncated     // older messages left out to fit maxFileBytes
+transcript.participants  // [{ userId, username, messageCount }], busiest first
+transcript.images        // { saved, skipped, bytes }
+transcript.files         // { saved, skipped, bytes }
+```
+
+## Signing
+
+Optional. Without a key a transcript works exactly the same; it just cannot
+prove it was not edited.
+
+```bash
+node -e "import('utilities-transcripts').then((m) => console.log(m.generateKeys()))"
+```
+
+This prints two keys:
+
+- the **private key** goes in your bot's environment
+  (`TRANSCRIPT_SIGNING_KEY`). Keep it secret and never commit it.
+- the **public key** is not a secret. Use it wherever you check a transcript.
 
 ```js
 import { verifyTranscript } from "utilities-transcripts";
 
 verifyTranscript(html, { trustedKeys: [PUBLIC_KEY] });
-// "verified" | "intact" | "modified" | "unsigned"
+// "verified"  signed by your key and unchanged
+// "intact"    unchanged, but signed by a key you did not list
+// "modified"  edited after it was signed
+// "unsigned"  no signature
 ```
 
-What the signature does and does not promise:
+Only `"verified"` means "my bot made this, and nobody changed it".
 
-- The data is gzipped and base64-encoded. That keeps it compact and out of the
-  way, but **base64 is not a lock** — anyone can decode it. The signature is
-  what detects a change.
-- A file carries its own public key, so opened on its own it can only say
-  **Unchanged** ("matches the signature it came with"). Somebody determined
-  could edit a file and re-sign it with a key of their own.
-- **Verified** means the signing key is one the checker already trusted. That
-  check belongs on a server you control: pass your public key as `trustedKeys`
-  and treat only `"verified"` as genuine.
+## Showing transcripts on your website
 
-### Showing a transcript on a website
+You do not need this: the file opens by itself. But if you want links like
+`yoursite.com/transcript/...`, you still do not need to store anything.
 
-Serve the file as it is, or draw it inside a page of your own with the same
-viewer the files use:
+Discord already hosts the file. Have your site fetch the attachment from
+Discord when the link is opened, and draw it with the same viewer the file
+uses:
 
 ```html
 <link rel="stylesheet" href="/viewer.css">
 <div id="transcript"></div>
 <script src="/viewer.js"></script>
 <script>
-  // `envelope` is the JSON inside the file's <script id="transcript-data"> block;
-  // readTranscript(html).envelope returns it on a server.
+  // `envelope` is the JSON inside the file's <script id="transcript-data"> block.
+  // On a server, readTranscript(html).envelope returns it.
   UtilTranscript.mount(document.getElementById("transcript"), envelope, { trustedKeys: [PUBLIC_KEY] });
 </script>
 ```
 
-`src/viewer/viewer.js` and `src/viewer/viewer.css` are plain files with no
-build step. Everything from a message is escaped before it reaches the page, and
-every address is checked before it becomes a link or a picture.
+`viewer.js` and `viewer.css` are in `src/viewer/`, plain files with no build
+step (`utilities-transcripts/viewer.js` and `/viewer.css` when installed).
+
+Things to know:
+
+- Discord's attachment links expire after about a day. Re-fetching the message
+  gives a fresh one, so make the link from the message, not from a saved URL.
+- Draw only transcripts that are `"verified"` with your public key. Otherwise
+  anybody could have a file of their own shown on your site.
+- Everything from a message is escaped before it reaches the page, and every
+  address is checked before it becomes a link or a picture.
+- If your site sends a Content-Security-Policy, voice messages and video need
+  `media-src blob:`.
 
 ## Development
 
 ```bash
-npm test          # node's own test runner; no network
-npm run sample    # writes sample/transcript-sample.html — open it in a browser
+npm test          # node's own test runner, no network
+npm run sample    # writes sample/transcript-sample.html; open it in a browser
 ```
 
 ## Licence

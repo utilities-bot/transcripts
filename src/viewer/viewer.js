@@ -39,6 +39,7 @@ function plural(n, word){ return n + " " + word + (n === 1 ? "" : "s"); }
 var ICON = {
   hash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M10.99 3.16A1 1 0 1 0 9 2.84L8.15 8H4a1 1 0 0 0 0 2h3.82l-.67 4H3a1 1 0 1 0 0 2h3.82l-.8 4.84a1 1 0 0 0 1.97.32L8.85 16h4.97l-.8 4.84a1 1 0 0 0 1.97.32l.86-5.16H20a1 1 0 1 0 0-2h-3.82l.67-4H21a1 1 0 1 0 0-2h-3.82l.8-4.84a1 1 0 1 0-1.97-.32L15.15 8h-4.97l.8-4.84ZM14.15 14l.67-4H9.85l-.67 4h4.97Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
   file: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 2a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2V8l-6-6H6Zm7 1.5L18.5 9H14a1 1 0 0 1-1-1V3.5ZM8 13h8v1.5H8V13Zm0 3.5h8V18H8v-1.5Z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H7Zm7 0a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1h-3Z"/></svg>',
   play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.14v13.72a1 1 0 0 0 1.52.86l11-6.86a1 1 0 0 0 0-1.7l-11-6.87A1 1 0 0 0 8 5.14Z"/></svg>',
   link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15 2a1 1 0 0 0 0 2h3.59l-7.3 7.3a1 1 0 0 0 1.42 1.4L20 5.42V9a1 1 0 1 0 2 0V3a1 1 0 0 0-1-1h-6Z"/><path fill="currentColor" d="M5 5a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2v-6a1 1 0 1 0-2 0v6H5V7h6a1 1 0 1 0 0-2H5Z"/></svg>',
   chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5.3 9.3a1 1 0 0 1 1.4 0l5.3 5.29 5.3-5.3a1 1 0 1 1 1.4 1.42l-6 6a1 1 0 0 1-1.4 0l-6-6a1 1 0 0 1 0-1.42Z"/></svg>',
@@ -295,13 +296,41 @@ function gallery(c, items){
     return tile(c, it.media, Object.assign({}, it, { fill: true }));
   }).join("") + "</div>";
 }
+/* ---------- voice messages, sound and video
+   A saved file is kept as plain bytes, so nothing here is a player until somebody presses play:
+   only then are the bytes given their real type and handed to the browser (see playable()). */
+function clock(s){ s = Math.max(0, Math.round(Number(s) || 0)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
+/* a voice message's waveform as bars: Discord sends up to 256 loudness samples, drawn as 40 */
+function waveBars(wave){
+  var raw = "", out = "";
+  try { raw = atob(wave || ""); } catch (e) {}
+  var n = Math.min(40, raw.length);
+  for (var i = 0; i < n; i++) {
+    var from = Math.floor(i * raw.length / n), to = Math.max(from + 1, Math.floor((i + 1) * raw.length / n)), peak = 0;
+    for (var j = from; j < to; j++) peak = Math.max(peak, raw.charCodeAt(j));
+    out += '<i style="height:' + Math.max(12, Math.round(peak / 255 * 100)) + '%"></i>';
+  }
+  return out;
+}
+function mediaMime(a){ return /^(audio|video)\/[a-z0-9.+-]{1,40}$/.test(a.mime || "") ? a.mime : a.kind === "video" ? "video/mp4" : "audio/ogg"; }
+function voiceCard(c, a){
+  var saved = !!savedFile(c, a.url);
+  return '<div class="voice' + (saved ? "" : " is-off") + '"' + (saved ? ' data-play="' + esc(a.url) + '" data-mime="' + mediaMime(a) + '"' : "") + ' data-secs="' + (Number(a.secs) || 0) + '">' +
+    '<button type="button" class="voice__btn"' + (saved ? ' aria-label="Play voice message"' : ' disabled aria-label="Voice message, not saved" title="Not saved in this transcript"') + ">" + ICON.play + ICON.pause + "</button>" +
+    '<span class="voice__wave" aria-hidden="true">' + waveBars(a.wave) + '</span><span class="voice__time">' + clock(a.secs) + "</span></div>" +
+    (saved ? "" : '<div class="voice__note">Voice message \u00b7 Not saved, the link may have expired</div>');
+}
 function fileCard(c, a){
+  if (a.kind === "audio" && a.wave) return voiceCard(c, a);
   var name = esc(a.name || "file"), size = bytesText(a.size), data = savedFile(c, a.url);
+  var plays = data && (a.kind === "video" || a.kind === "audio");
   var title = data ? '<a class="file__name" href="' + data + '" download="' + name + '">' + name + "</a>"
     : isHttp(a.url) ? '<a class="file__name" href="' + esc(a.url) + '" target="_blank" rel="noopener noreferrer">' + name + "</a>"
     : '<span class="file__name">' + name + "</span>";
   var note = data ? "Saved in this transcript" : "Not saved, the link may have expired";
-  return '<div class="file' + (data ? " is-saved" : "") + '">' + (a.kind === "video" || a.kind === "audio" ? ICON.play : ICON.file) + '<div class="file__meta">' + title +
+  var icon = plays ? '<button type="button" class="file__play" data-media="' + esc(a.url) + '" data-mime="' + mediaMime(a) + '" data-kind="' + a.kind + '" aria-label="Play ' + name + '" title="Play">' + ICON.play + "</button>"
+    : a.kind === "video" || a.kind === "audio" ? ICON.play : ICON.file;
+  return '<div class="file' + (data ? " is-saved" : "") + '">' + icon + '<div class="file__meta">' + title +
     '<span class="file__size">' + esc([size, note].filter(Boolean).join(" \u00b7 ")) + "</span></div>" + (data ? '<a class="file__get" href="' + data + '" download="' + name + '" title="Download" aria-label="Download ' + name + '">' + ICON.download + "</a>" : "") + "</div>";
 }
 function attachmentsHtml(c, list){
@@ -649,7 +678,65 @@ function wire(el, c){
     var to = el.querySelector("#m-" + (root.CSS && CSS.escape ? CSS.escape(id) : id));
     if (to) { to.scrollIntoView({ block: "center" }); to.classList.remove("is-flash"); void to.offsetWidth; to.classList.add("is-flash"); }
   }
+  /* A saved file's bytes as something the browser can play. Made on the first press and kept:
+     a transcript can hold megabytes of sound, and none of it is decoded until it is wanted. */
+  var blobs = {}, sounding = null;
+  function playable(url, mime){
+    if (blobs[url]) return blobs[url];
+    var data = savedFile(c, url);
+    if (!data || !/^(audio|video)\/[a-z0-9.+-]{1,40}$/.test(mime || "")) return null;
+    var raw = atob(data.slice(data.indexOf(",") + 1)), bytes = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    return (blobs[url] = URL.createObjectURL(new Blob([bytes], { type: mime })));
+  }
+  function only(player){ if (sounding && sounding !== player) sounding.pause(); sounding = player; }
+  /* a voice message: play and pause in place, the bars filling as it goes; a press on the bars seeks */
+  function voice(box, seek){
+    var au = box._audio, total = +box.getAttribute("data-secs") || 0;
+    var len = function(){ return au && isFinite(au.duration) && au.duration ? au.duration : total; };
+    if (au) {
+      if (seek != null && len()) { au.currentTime = seek * len(); if (au.paused) au.play().catch(function(){}); }
+      else if (au.paused) au.play().catch(function(){}); else au.pause();
+      return;
+    }
+    var src = playable(box.getAttribute("data-play"), box.getAttribute("data-mime"));
+    if (!src) return;
+    au = box._audio = new Audio(src);
+    var lines = box.querySelectorAll(".voice__wave i"), time = box.querySelector(".voice__time");
+    var draw = function(){
+      var at = len() ? au.currentTime / len() : 0;
+      for (var i = 0; i < lines.length; i++) lines[i].classList.toggle("is-on", (i + .5) / lines.length <= at);
+      if (time) time.textContent = clock(au.currentTime || len());
+    };
+    au.addEventListener("play", function(){ only(au); box.classList.add("is-playing"); });
+    au.addEventListener("pause", function(){ box.classList.remove("is-playing"); });
+    au.addEventListener("timeupdate", draw);
+    au.addEventListener("ended", function(){ au.currentTime = 0; draw(); });
+    au.addEventListener("error", function(){ box.classList.add("is-off"); say("This browser can't play that"); });
+    if (seek != null) au.addEventListener("loadedmetadata", function(){ if (len()) au.currentTime = seek * len(); }, { once: true });
+    au.play().catch(function(){});
+  }
+  /* any other saved sound or video: the browser's own player, put under the file on the first press */
+  function media(btn){
+    var card = btn.closest(".file"), src = playable(btn.getAttribute("data-media"), btn.getAttribute("data-mime"));
+    if (!card || !src) return;
+    var pl = document.createElement(btn.getAttribute("data-kind") === "video" ? "video" : "audio");
+    pl.className = "player player--" + pl.tagName.toLowerCase();
+    pl.controls = true; pl.autoplay = true; pl.src = src;
+    pl.addEventListener("play", function(){ only(pl); });
+    pl.addEventListener("error", function(){ pl.remove(); say("This browser can't play that"); });
+    card.parentNode.insertBefore(pl, card.nextSibling);
+    btn.removeAttribute("data-media"); btn.disabled = true;
+  }
   function act(t, e){
+    var vb = t.closest(".voice[data-play]");
+    if (vb) {
+      var wave = t.closest(".voice__wave"), box = wave && wave.getBoundingClientRect();
+      if (t.closest(".voice__btn")) voice(vb); else if (box && box.width) voice(vb, Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)));
+      return true;
+    }
+    var mb = t.closest("[data-media]");
+    if (mb) { media(mb); return true; }
     var sp = t.closest(".spoiler, .is-spoiler");
     if (sp && !sp.classList.contains("is-open")) { sp.classList.add("is-open"); return true; }
     var who = t.closest("[data-user]");

@@ -88,7 +88,42 @@ const PICTURES = new Map([
   // A file that is not a picture. The video beside it in the sample is not here: Discord no
   // longer has it, which is what a file that cannot be saved looks like.
   [`${CDN}/attachments/1/20/orders-export.csv`, () => Buffer.from("order,amount\nUT-48213,4.99\nUT-48213,4.99\n")],
+  [`${CDN}/attachments/1/22/voice-message.wav`, () => VOICE],
 ]);
+
+/**
+ * Two seconds of a rising tone, as a WAV: a sound a browser really plays.
+ * Discord's own voice messages are Ogg; nothing here reads the container.
+ */
+export function wav(seconds = 2, rate = 8000) {
+  const samples = Math.round(seconds * rate);
+  const out = Buffer.alloc(44 + samples);
+  out.write("RIFF", 0);
+  out.writeUInt32LE(36 + samples, 4);
+  out.write("WAVEfmt ", 8);
+  out.writeUInt32LE(16, 16);
+  out.writeUInt16LE(1, 20);
+  out.writeUInt16LE(1, 22);
+  out.writeUInt32LE(rate, 24);
+  out.writeUInt32LE(rate, 28);
+  out.writeUInt16LE(1, 32);
+  out.writeUInt16LE(8, 34);
+  out.write("data", 36);
+  out.writeUInt32LE(samples, 40);
+  for (let i = 0; i < samples; i++) {
+    const t = i / rate;
+    out[44 + i] = 128 + Math.round(60 * Math.sin(2 * Math.PI * (330 + 220 * t) * t) * Math.min(1, t * 8, (seconds - t) * 8));
+  }
+
+  return out;
+}
+
+const VOICE = wav();
+
+/** The waveform Discord sends with a voice message: loudness samples, base64. */
+export const WAVEFORM = Buffer.from(
+  Array.from({ length: 96 }, (_, i) => Math.round(40 + 200 * Math.abs(Math.sin(i / 5) * Math.cos(i / 17)))),
+).toString("base64");
 
 /** A `fetch` that knows only the fixture's pictures. */
 export function fakeFetch(calls = []) {
@@ -98,7 +133,7 @@ export function fakeFetch(calls = []) {
     const draw = PICTURES.get(`${url.origin}${url.pathname}`);
     if (draw === undefined) return Promise.resolve(new Response("gone", { status: 404 }));
 
-    const type = url.pathname.endsWith(".csv") ? "text/csv" : "image/png";
+    const type = url.pathname.endsWith(".csv") ? "text/csv" : url.pathname.endsWith(".wav") ? "audio/wav" : "image/png";
 
     return Promise.resolve(new Response(draw(), { status: 200, headers: { "content-type": type } }));
   };
@@ -289,6 +324,21 @@ export function sampleMessages() {
     ],
   });
 
+  const spoken = message(MIRA, {
+    gap: 20_000,
+    flags: 8192,
+    attachments: [
+      {
+        name: "voice-message.wav",
+        size: VOICE.length,
+        contentType: "audio/wav",
+        url: `${CDN}/attachments/1/22/voice-message.wav?ex=1`,
+        duration: 2,
+        waveform: WAVEFORM,
+      },
+    ],
+  });
+
   const forwarded = message(JONAS, {
     reference: { messageId: "1489000000000000001", channelId: IDS.rules, type: 1 },
     messageSnapshots: [
@@ -334,7 +384,7 @@ export function sampleMessages() {
   const thanks = message(MIRA, { gap: 86_400_000, content: "It dropped off this morning. Thank you!" });
   const jumbo = message(MIRA, { gap: 4_000, content: "🎉" });
 
-  return [opened, problem, screenshot, claimed, reply, pictures, extras, forwarded, menu, pinned, thanks, jumbo];
+  return [opened, problem, screenshot, claimed, reply, pictures, extras, spoken, forwarded, menu, pinned, thanks, jumbo];
 }
 
 export const SAMPLE_IDS = IDS;
