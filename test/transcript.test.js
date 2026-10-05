@@ -518,6 +518,18 @@ describe("the viewer", () => {
     assert.equal(/<button[^>]*disabled/.test(voice), false);
   });
 
+  /**
+   * A message that continues the one above it shows its time on hover, where
+   * the avatar would be. The voice message's timer once took that function's
+   * name, and every such row read "3916530:04".
+   */
+  it("shows a time of day beside a message that continues another's", () => {
+    const times = [...drawn().matchAll(/class="msg__at"[^>]*>([^<]*)</g)].map((match) => match[1]);
+
+    assert.equal(times.length > 0, true, "the sample has rows that continue another");
+    for (const time of times) assert.match(time, /^\d{1,2}:\d{2}(\s?[AP]M)?$/);
+  });
+
   it("says so when a voice message could not be saved, and offers nothing to press", () => {
     const html = viewer.render(collected().payload, {});
 

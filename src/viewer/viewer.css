@@ -70,7 +70,9 @@ html,body{margin:0;background:#323339}
 .tr-top__title{flex:0 1 auto;min-width:0;display:flex;flex-direction:column}
 .tr-top__title>b{color:var(--head);font-size:20px;line-height:26px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tr-top__line{display:flex;flex-wrap:wrap;color:var(--muted);font-size:14px;line-height:20px}
-.tr-top__line span+span::before{content:"\00b7";margin:0 7px;color:var(--faint)}
+/* the dot belongs to the item before it, so a line that wraps never starts with one */
+.tr-top__line span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr-top__line span:not(:last-child)::after{content:"\00b7";margin:0 7px;color:var(--faint)}
 /* a button, not a link: grey like Discord's own secondary buttons */
 .tr-more__btn{flex:none;display:inline-flex;align-items:center;gap:4px;height:30px;margin-left:8px;padding:0 8px 0 12px;border-radius:8px;background:#44454c;box-shadow:inset 0 0 0 1px var(--edge);color:var(--head);font-size:14px;font-weight:500}
 .tr-more__btn svg{width:16px;height:16px;color:var(--muted)}
@@ -361,6 +363,18 @@ a.btn:hover{background:#4e4f57}
   .tr-more__btn{margin-left:auto}
   .md pre,.md blockquote{max-width:100%}
   .embed__row{grid-template-columns:1fr}
+  /* a phone has no room to give a thumbnail a third of an embed's width */
+  .embed{padding:8px 12px 12px 10px}
+  .embed__thumb,.embed__thumb .pic{width:52px;height:52px}
+  .embed__thumb{margin-left:10px}
+  .thumb,.thumb .pic{width:56px;height:56px}
+  .msg__time{font-size:11px}
+  .voice{width:100%;max-width:340px}
+  .voice__wave{flex:1}
 }
 @media (prefers-reduced-motion:reduce){.msg.is-flash,.sys.is-flash{animation:none}}
 @media print{.tr-bar{position:static}.tr-zoom,.tr-find,.tr-pop,.tr-menu,.tr-toast{display:none}.msg__at{opacity:1}}
+/* A long transcript is thousands of rows, and a browser lays out and paints every one of them
+   before showing the first. This lets it skip the rows that are off screen until they are
+   scrolled to, remembering each one's height once it has been drawn. */
+.msg,.sys{content-visibility:auto;contain-intrinsic-size:auto 44px}

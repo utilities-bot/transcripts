@@ -299,7 +299,7 @@ function gallery(c, items){
 /* ---------- voice messages, sound and video
    A saved file is kept as plain bytes, so nothing here is a player until somebody presses play:
    only then are the bytes given their real type and handed to the browser (see playable()). */
-function clock(s){ s = Math.max(0, Math.round(Number(s) || 0)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
+function mmss(s){ s = Math.max(0, Math.round(Number(s) || 0)); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
 /* a voice message's waveform as bars: Discord sends up to 256 loudness samples, drawn as 40 */
 function waveBars(wave){
   var raw = "", out = "";
@@ -317,7 +317,7 @@ function voiceCard(c, a){
   var saved = !!savedFile(c, a.url);
   return '<div class="voice' + (saved ? "" : " is-off") + '"' + (saved ? ' data-play="' + esc(a.url) + '" data-mime="' + mediaMime(a) + '"' : "") + ' data-secs="' + (Number(a.secs) || 0) + '">' +
     '<button type="button" class="voice__btn"' + (saved ? ' aria-label="Play voice message"' : ' disabled aria-label="Voice message, not saved" title="Not saved in this transcript"') + ">" + ICON.play + ICON.pause + "</button>" +
-    '<span class="voice__wave" aria-hidden="true">' + waveBars(a.wave) + '</span><span class="voice__time">' + clock(a.secs) + "</span></div>" +
+    '<span class="voice__wave" aria-hidden="true">' + waveBars(a.wave) + '</span><span class="voice__time">' + mmss(a.secs) + "</span></div>" +
     (saved ? "" : '<div class="voice__note">Voice message \u00b7 Not saved, the link may have expired</div>');
 }
 function fileCard(c, a){
@@ -706,7 +706,7 @@ function wire(el, c){
     var draw = function(){
       var at = len() ? au.currentTime / len() : 0;
       for (var i = 0; i < lines.length; i++) lines[i].classList.toggle("is-on", (i + .5) / lines.length <= at);
-      if (time) time.textContent = clock(au.currentTime || len());
+      if (time) time.textContent = mmss(au.currentTime || len());
     };
     au.addEventListener("play", function(){ only(au); box.classList.add("is-playing"); });
     au.addEventListener("pause", function(){ box.classList.remove("is-playing"); });
