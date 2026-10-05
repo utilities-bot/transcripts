@@ -126,3 +126,31 @@ export function verify(envelope, options = {}) {
 
   return (options.trustedKeys ?? []).includes(envelope.key) ? "verified" : "intact";
 }
+
+/**
+ * A signature on a short piece of text, as base64url so it can ride in a link.
+ *
+ * For vouching for something other than a transcript's own data: the bot signs
+ * the address of a transcript it filed, so the site that shows it can tell a
+ * link the bot made from one somebody wrote by hand.
+ *
+ * @param {string} text
+ * @param {string} signingKey the private key, as `pack` takes it
+ */
+export function signText(text, signingKey) {
+  return signBytes(null, Buffer.from(text, "utf8"), privateKeyFrom(signingKey)).toString("base64url");
+}
+
+/** Whether `signature` is `publicKey`'s signature on `text`. Never throws. */
+export function verifyText(text, signature, publicKey) {
+  try {
+    return verifyBytes(
+      null,
+      Buffer.from(text, "utf8"),
+      publicKeyFrom(publicKey),
+      Buffer.from(String(signature), "base64url"),
+    );
+  } catch {
+    return false;
+  }
+}

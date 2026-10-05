@@ -172,4 +172,9 @@ export function verify(
   options?: { readonly trustedKeys?: readonly string[] },
 ): TranscriptStatus;
 
+/** A signature on a short piece of text, as base64url so it can ride in a link. */
+export function signText(text: string, signingKey: string): string;
+/** Whether `signature` is `publicKey`'s signature on `text`. Never throws. */
+export function verifyText(text: string, signature: string, publicKey: string): boolean;
+
 export const FORMAT_VERSION: number;

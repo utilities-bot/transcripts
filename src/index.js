@@ -6,7 +6,15 @@ import { verify } from "./pack.js";
 export { embedAssets } from "./assets.js";
 export { collectTranscript } from "./collect.js";
 export { buildHtml, readTranscript } from "./html.js";
-export { FORMAT_VERSION, generateKeys, pack, unpack, verify } from "./pack.js";
+export {
+  FORMAT_VERSION,
+  generateKeys,
+  pack,
+  signText,
+  unpack,
+  verify,
+  verifyText,
+} from "./pack.js";
 
 /** Discord hands history back a hundred messages at a time. */
 const PAGE = 100;
