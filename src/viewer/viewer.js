@@ -604,7 +604,7 @@ function profileHtml(c, key){
     '<div class="tr-pop__facts">' +
       row(u.bot || u.webhook ? "Created" : "Joined Discord", made ? esc(F_DAY.format(new Date(made))) : "") +
       row("Joined server", u.joined ? esc(F_DAY.format(new Date(u.joined))) : "") +
-      row("Messages here", String(count)) +
+      row("Messages", String(count)) +
     "</div>" +
     (roles.length ? fold("Roles", roles.length, '<div class="tr-pop__roles">' + roles.map(function(r){ return '<span class="tr-pop__role"><i' + (r.color ? ' style="background:' + esc(r.color) + '"' : "") + "></i>" + esc(r.name) + "</span>"; }).join("") + "</div>") : "") +
     (perms.length ? fold("Permissions", perms.length, '<div class="tr-pop__roles">' + perms.map(function(p){ return '<span class="tr-pop__role">' + esc(permText(p)) + "</span>"; }).join("") + "</div>") : "") +
