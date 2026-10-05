@@ -51,6 +51,7 @@ var ICON = {
   image: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M2 5a3 3 0 0 1 3-3h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5Zm13.35 8.13 3.5 4.67c.37.5.02 1.2-.6 1.2H5.81a.75.75 0 0 1-.59-1.22l1.86-2.32a1.5 1.5 0 0 1 2.34 0l.5.64 2.23-2.97a2 2 0 0 1 3.2 0ZM10.2 5.98c.23-.91-.88-1.55-1.55-.9a.93.93 0 0 1-1.3 0c-.67-.65-1.78-.01-1.55.9a.93.93 0 0 1-.65 1.12c-.9.26-.9 1.54 0 1.8.48.14.77.63.65 1.12-.23.91.88 1.55 1.55.9a.93.93 0 0 1 1.3 0c.67.65 1.78.01 1.55-.9a.93.93 0 0 1 .65-1.12c.9-.26.9-1.54 0-1.8a.93.93 0 0 1-.65-1.12Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
   shield: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 1.5 3.5 4.6v6.5c0 5.2 3.5 9.9 8.5 11.4 5-1.5 8.5-6.2 8.5-11.4V4.6L12 1.5Zm-1.2 14.3-3.6-3.6 1.4-1.4 2.2 2.2 4.8-4.8 1.4 1.4-6.2 6.2Z"/></svg>',
   alert: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 1 21h22L12 2Zm1 15h-2v-2h2v2Zm0-4h-2V9h2v4Z"/></svg>',
+  close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M17.3 18.7a1 1 0 0 0 1.4-1.4L13.42 12l5.3-5.3a1 1 0 0 0-1.42-1.4L12 10.58l-5.3-5.3a1 1 0 0 0-1.4 1.42L10.58 12l-5.3 5.3a1 1 0 1 0 1.42 1.4L12 13.42l5.3 5.3Z"/></svg>',
   download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a1 1 0 0 1 1 1v10.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V3a1 1 0 0 1 1-1ZM3 20a1 1 0 0 1 1-1h16a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1Z"/></svg>',
   search: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.62 17.03a9 9 0 1 1 1.41-1.41l4.68 4.67a1 1 0 0 1-1.42 1.42l-4.67-4.68ZM17 10a7 7 0 1 0-14 0 7 7 0 0 0 14 0Z" fill-rule="evenodd" clip-rule="evenodd"/></svg>',
   slash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 3a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5Zm9.6 3.3a1 1 0 0 1 .6 1.3l-4.5 10.5a1 1 0 1 1-1.84-.8L13.3 6.9a1 1 0 0 1 1.3-.6Z"/></svg>'
@@ -500,6 +501,19 @@ function topLine(c){
   var span = msgs.length > 1 ? msgs[msgs.length - 1].ts - msgs[0].ts : 0;
   return (g.name ? "<span>" + esc(g.name) + "</span>" : "") + "<span>" + plural(msgs.length, "message") + "</span>" + (span > 0 ? "<span>" + lasted(span) + "</span>" : "");
 }
+/* Who took part. The busiest few are shown; a ticket with a crowd in it keeps the rest folded
+   under one line, so thirty people do not push the details off the screen. */
+var PEOPLE_SHOWN = 8;
+function peopleHtml(c, order, counts){
+  if (!order.length) return "";
+  var chip = function(k){
+    var u = userOf(c, k);
+    return '<li data-user="' + esc(k) + '" role="button" tabindex="0">' + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
+  };
+  var rest = order.slice(PEOPLE_SHOWN);
+  return '<ul class="tr-people">' + order.slice(0, PEOPLE_SHOWN).map(chip).join("") + "</ul>" +
+    (rest.length ? '<details class="tr-rest"><summary>' + ICON.chevron + "<span>" + rest.length + " more</span></summary>" + '<ul class="tr-people">' + rest.map(chip).join("") + "</ul></details>" : "");
+}
 function detailsHtml(c, people){
   var p = c.p, g = p.guild || {}, ch = p.channel || {}, msgs = p.messages || [], st = p.stats || {};
   var first = msgs.length ? msgs[0].ts : null, last = msgs.length ? msgs[msgs.length - 1].ts : null, made = p.exportedAt || Date.now(), z = zone();
@@ -523,22 +537,24 @@ function render(payload, opt){
   var counts = {}, order = [];
   msgs.forEach(function(m){ if (!m.author) return; if (!counts[m.author]) { counts[m.author] = 0; order.push(m.author); } counts[m.author]++; });
   order.sort(function(a, b){ return counts[b] - counts[a]; });
-  var brand = payload.brand || null;
+  var brand = payload.brand || null, icon = src(c, g.icon);
 
   return '<div class="tr">' +
     '<header class="tr-bar"><span class="tr-bar__hash">' + ICON.hash + '</span><b class="tr-bar__name">' + esc(ch.name || "transcript") + "</b>" +
       (g.name ? '<span class="tr-bar__sep"></span><span class="tr-bar__topic">' + esc(g.name) + "</span>" : "") +
-      '<label class="tr-find">' + ICON.search + '<input id="trFind" type="search" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search this transcript"><span id="trFound"></span></label></header>' +
+      '<div class="tr-find" id="trFindBox">' + ICON.search + '<input id="trFind" type="text" placeholder="Search" autocomplete="off" spellcheck="false" aria-label="Search this transcript">' +
+        '<span class="tr-find__n" id="trFound"></span>' +
+        '<button type="button" class="tr-find__b" id="trPrev" title="Previous match (Shift+Enter)" aria-label="Previous match">' + ICON.chevron + "</button>" +
+        '<button type="button" class="tr-find__b" id="trNext" title="Next match (Enter)" aria-label="Next match">' + ICON.chevron + "</button>" +
+        '<button type="button" class="tr-find__b" id="trClear" title="Clear (Esc)" aria-label="Clear search">' + ICON.close + "</button></div></header>" +
     '<main class="tr-main">' +
       (o.status === "modified" ? '<div class="tr-warn">' + ICON.alert + "<div><b>This transcript was modified.</b><span>The file no longer matches the signature it was exported with, so what it shows may not be what was said.</span></div></div>" : "") +
       '<section class="tr-top">' +
-        "<h1>#" + esc(ch.name || "channel") + "</h1>" +
-        '<details class="tr-more"><summary><span class="tr-top__line">' + topLine(c) + '</span><span class="tr-more__btn">Details' + ICON.chevron + "</span></summary>" +
-          (order.length ? '<ul class="tr-people">' + order.slice(0, 24).map(function(k){
-            var u = userOf(c, k);
-            return '<li data-user="' + esc(k) + '" role="button" tabindex="0">' + avatarHtml(c, k, "tr-people__av") + '<span class="tr-people__n">' + esc(u.name || shown(u)) + '</span><span class="tr-people__c">' + counts[k] + "</span></li>";
-          }).join("") + (order.length > 24 ? "<li><span class=\"tr-people__n\">and " + (order.length - 24) + " more</span></li>" : "") + "</ul>" : "") +
-          '<dl class="tr-list">' + detailsHtml(c, order.length) + "</dl></details>" +
+        '<details class="tr-more"><summary>' +
+          (icon ? '<img class="tr-top__icon" src="' + esc(icon) + '" alt="" data-e="gone">' : '<span class="tr-top__icon tr-top__icon--hash">' + ICON.hash + "</span>") +
+          '<span class="tr-top__title"><b>#' + esc(ch.name || "channel") + '</b><span class="tr-top__line">' + topLine(c) + "</span></span>" +
+          '<span class="tr-more__btn">Details' + ICON.chevron + "</span></summary>" +
+          '<div class="tr-more__body">' + peopleHtml(c, order, counts) + '<dl class="tr-list">' + detailsHtml(c, order.length) + "</dl></div></details>" +
         (payload.truncated ? '<p class="tr-top__note">The ' + plural(payload.truncated, "oldest message") + " " + (payload.truncated === 1 ? "was" : "were") + " skipped to keep this file within its size limit.</p>" : "") +
       "</section>" +
       '<div class="tr-log">' + (msgs.length ? messagesHtml(c) : '<p class="tr-empty">There are no messages in this transcript.</p>') + "</div>" +
@@ -660,7 +676,7 @@ function wire(el, c){
     var cp = t.closest("[data-copy]");
     if (cp) { copy(cp.getAttribute("data-copy"), "Copied ID"); return; }
     if (t.closest("#trPop")) return;
-    if (t.closest("a") || t.closest("#trFind")) { close(); if (t.closest("a[download]")) say("Downloading"); return; }
+    if (t.closest("a") || t.closest("#trFindBox")) { close(); if (t.closest("a[download]")) say("Downloading"); return; }
     if (!act(t, e)) close();
   });
   /* Right-click: the things worth copying. A link, a picture's own menu or selected text keeps
@@ -698,47 +714,61 @@ function wire(el, c){
   });
   if (root.addEventListener) root.addEventListener("scroll", function(){ if (menu) menu.hidden = true; }, { passive: true });
 
-  /* Search highlights every match where it stands and steps through them: nothing is hidden, so
-     the conversation around a match is still there to read. Enter goes to the next match,
-     Shift+Enter to the one before. */
-  var find = el.querySelector("#trFind"), found = el.querySelector("#trFound"), log = el.querySelector(".tr-log"), hits = [], at = -1, findT = 0;
+  /* Search marks every match where it stands and nothing is hidden, so the conversation around
+     a match is still there to read. Typing only marks and counts — the page does not jump about
+     under a half-typed word. Enter or the down arrow goes to the next match, Shift+Enter or the
+     up arrow to the one before, and Esc or the cross clears it. */
+  var find = el.querySelector("#trFind"), box = el.querySelector("#trFindBox"), found = el.querySelector("#trFound"), log = el.querySelector(".tr-log"), hits = [], at = -1, findT = 0;
+  function label(){
+    var q = find.value.trim();
+    if (box) box.classList.toggle("is-on", !!q);
+    if (found) found.textContent = !q ? "" : !hits.length ? "No results" : at < 0 ? hits.length + (hits.length === 1 ? " result" : " results") : (at + 1) + " of " + hits.length;
+  }
   function clearHits(){
     hits.forEach(function(m){ var p = m.parentNode; if (p) { m.replaceWith(document.createTextNode(m.textContent)); p.normalize(); } });
     hits = []; at = -1;
   }
-  function show(i, scroll){
-    if (!hits.length) { if (found) found.textContent = find.value.trim() ? "No results" : ""; return; }
+  function step(by){
+    if (!hits.length) return;
     if (hits[at]) hits[at].classList.remove("is-on");
-    at = (i + hits.length) % hits.length;
+    at = at < 0 ? (by > 0 ? 0 : hits.length - 1) : (at + by + hits.length) % hits.length;
     hits[at].classList.add("is-on");
-    if (scroll) hits[at].scrollIntoView({ block: "center" });
-    if (found) found.textContent = (at + 1) + " of " + hits.length;
+    hits[at].scrollIntoView({ block: "center" });
+    label();
   }
   function search(){
     clearHits();
     var q = find.value.trim().toLowerCase();
-    if (!q || !log) { show(0, false); return; }
-    /* collect the text first, then wrap: changing the page while walking it would skip nodes */
-    var walk = document.createTreeWalker(log, 4), nodes = [], n;
-    while ((n = walk.nextNode())) if (n.nodeValue.toLowerCase().indexOf(q) >= 0) nodes.push(n);
-    nodes.forEach(function(node){
-      var text = node.nodeValue, low = text.toLowerCase(), from = 0, i, frag = document.createDocumentFragment();
-      while ((i = low.indexOf(q, from)) >= 0 && hits.length < 2000) {
-        frag.appendChild(document.createTextNode(text.slice(from, i)));
-        var m = document.createElement("mark"); m.className = "hit"; m.textContent = text.slice(i, i + q.length);
-        frag.appendChild(m); hits.push(m); from = i + q.length;
-      }
-      frag.appendChild(document.createTextNode(text.slice(from)));
-      node.parentNode.replaceChild(frag, node);
-    });
-    show(0, true);
+    if (q && log) {
+      /* collect the text first, then wrap: changing the page while walking it would skip nodes */
+      var walk = document.createTreeWalker(log, 4), nodes = [], n;
+      while ((n = walk.nextNode())) if (n.nodeValue.toLowerCase().indexOf(q) >= 0) nodes.push(n);
+      nodes.forEach(function(node){
+        var text = node.nodeValue, low = text.toLowerCase(), from = 0, i, frag = document.createDocumentFragment();
+        while ((i = low.indexOf(q, from)) >= 0 && hits.length < 2000) {
+          frag.appendChild(document.createTextNode(text.slice(from, i)));
+          var m = document.createElement("mark"); m.className = "hit"; m.textContent = text.slice(i, i + q.length);
+          frag.appendChild(m); hits.push(m); from = i + q.length;
+        }
+        frag.appendChild(document.createTextNode(text.slice(from)));
+        node.parentNode.replaceChild(frag, node);
+      });
+    }
+    label();
   }
+  function reset(){ clearTimeout(findT); find.value = ""; search(); }
   if (find) {
-    find.addEventListener("input", function(){ clearTimeout(findT); findT = setTimeout(search, 120); });
+    find.addEventListener("input", function(){ clearTimeout(findT); findT = setTimeout(search, 150); });
     find.addEventListener("keydown", function(e){
-      if (e.key === "Enter") { e.preventDefault(); if (hits.length) show(at + (e.shiftKey ? -1 : 1), true); }
-      if (e.key === "Escape") { find.value = ""; search(); find.blur(); }
+      if (e.key === "Enter" || e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault(); clearTimeout(findT);
+        if (!hits.length && find.value.trim()) search();
+        step(e.key === "ArrowUp" || (e.key === "Enter" && e.shiftKey) ? -1 : 1);
+      }
+      if (e.key === "Escape") { e.stopPropagation(); reset(); find.blur(); }
     });
+    var on = function(id, fn){ var b = el.querySelector(id); if (b) b.addEventListener("click", function(e){ e.stopPropagation(); fn(); }); };
+    on("#trPrev", function(){ step(-1); }); on("#trNext", function(){ step(1); }); on("#trClear", function(){ reset(); find.focus(); });
   }
 
   /* a picture that will not load: an emoji falls back to its text, an avatar to an initial,

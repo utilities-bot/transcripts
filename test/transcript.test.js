@@ -518,7 +518,7 @@ describe("the viewer", () => {
     const html = viewer.render(payload, {});
 
     for (const piece of [
-      '<h1>#ticket-0007</h1>',
+      '<b>#ticket-0007</b>',
       '<span class="tr-top__line"><span>Utilities Support</span><span>12 messages</span><span>1d',
       'data-copy="1374147741403320350"',
       'data-copy="1489260905819541635"',
