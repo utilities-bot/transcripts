@@ -537,8 +537,20 @@ function peopleHtml(c, order, counts){
 }
 /* The details list, exactly these rows in this order and nothing else. "Created" is when the
    ticket's first message was sent; both dates are the reader's own time with UTC beside it. */
+/* What people uploaded that is saved in this file: pictures, voice messages, any other file.
+   Counted from the messages themselves, so it is never the avatars and emoji saved to draw them
+   (which is what "Images" once counted, on a ticket with no image in it). */
+function savedAttachments(c){
+  var n = 0;
+  (c.p.messages || []).forEach(function(m){
+    [m.attachments, m.forwarded && m.forwarded.attachments].forEach(function(list){
+      (list || []).forEach(function(a){ if (a.kind === "image" ? isPicture(c.assets[a.url]) : savedFile(c, a.url)) n++; });
+    });
+  });
+  return n;
+}
 function detailsHtml(c){
-  var p = c.p, g = p.guild || {}, ch = p.channel || {}, msgs = p.messages || [], st = p.stats || {};
+  var p = c.p, g = p.guild || {}, ch = p.channel || {}, msgs = p.messages || [];
   var first = msgs.length ? msgs[0].ts : null, last = msgs.length ? msgs[msgs.length - 1].ts : null, made = p.exportedAt || Date.now();
   var id = function(v){ return v ? ' <button class="tr-id" type="button" data-copy="' + esc(v) + '" title="Copy ID">' + esc(v) + "</button>" : ""; };
   var when = function(ms){ return esc(fullDate(new Date(ms))) + ' <span class="tr-dim">(' + esc(utcText(ms)) + ")</span>"; };
@@ -546,8 +558,7 @@ function detailsHtml(c){
   return row("Server", esc(g.name || "Unknown") + id(g.id)) +
     row("Channel", "#" + esc(ch.name || "unknown") + id(ch.id)) +
     row("Messages", String(msgs.length)) +
-    row("Images", String(st.images ? st.images.saved : Object.keys(c.assets).length)) +
-    row("Files", String(st.files ? st.files.saved : 0)) +
+    row("Attachments", String(savedAttachments(c))) +
     row("Duration", first && last && last > first ? lasted(last - first) : "") +
     row("Created", first ? when(first) : "") +
     row("Transcript Generated", when(made));

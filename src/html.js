@@ -69,7 +69,7 @@ const safe = (value) =>
     .replace(/>/g, "&gt;");
 
 /** The label column's width: the longest label and two spaces. */
-const LABEL = 10;
+const LABEL = 13;
 
 /** One row of the first block: a label, padded so the values line up. */
 const row = (label, value) => `    ${label.padEnd(LABEL)}${value}`;
@@ -82,7 +82,7 @@ const row = (label, value) => `    ${label.padEnd(LABEL)}${value}`;
  * anything. Set out as two small tables — labels on the left, and the people
  * in columns — so it reads at a glance and lines up in a fixed-width font.
  */
-function summary(payload, stats) {
+function summary(payload) {
   const counts = new Map();
   for (const message of payload.messages) {
     if (message.author) counts.set(message.author, (counts.get(message.author) ?? 0) + 1);
@@ -93,11 +93,15 @@ function summary(payload, stats) {
   const widest = (field) => Math.max(0, ...spoke.map((one) => one[field].length));
   const [countWidth, nameWidth] = [widest("count"), Math.min(32, widest("name"))];
   const exported = new Date(payload.exportedAt).toISOString().replace("T", " ").slice(0, 16);
-  const images = stats ?? payload.stats?.images ?? { saved: 0, skipped: 0 };
-  const files = payload.stats?.files ?? { saved: 0, skipped: 0 };
-  // "10 saved", or "10 saved, 2 skipped" — the second half only when there is something to say.
-  const kept = (one) => `${String(one.saved)} saved` + (one.skipped > 0 ? `, ${String(one.skipped)} skipped` : "");
-  const anySkipped = images.skipped + files.skipped + (payload.truncated ?? 0) > 0;
+  // What people uploaded, and how much of it is saved in this file. Counted from the messages:
+  // the avatars and emoji saved to draw them are not attachments.
+  const uploads = payload.messages.flatMap((message) => [
+    ...(message.attachments ?? []),
+    ...(message.forwarded?.attachments ?? []),
+  ]);
+  const saved = uploads.filter((file) => typeof payload.assets?.[file.url] === "string").length;
+  const skipped = uploads.length - saved;
+  const anySkipped = skipped + (payload.truncated ?? 0) > 0;
 
   return [
     "<Transcript>",
@@ -105,8 +109,7 @@ function summary(payload, stats) {
     row("Channel", `#${safe(payload.channel.name)} (${safe(payload.channel.id)})`),
     row("Created", `${exported} UTC`),
     row("Messages", `${String(payload.messages.length)} saved` + (payload.truncated ? `, ${String(payload.truncated)} skipped` : "")),
-    row("Images", kept(images)),
-    row("Files", kept(files)),
+    row("Attachments", `${String(saved)} saved` + (skipped > 0 ? `, ${String(skipped)} skipped` : "")),
     // One line of why, and only when something was skipped.
     ...(anySkipped ? [row("Skipped", "over the file size limit, or no longer on Discord")] : []),
     "",
@@ -124,7 +127,7 @@ export function buildHtml(payload, options = {}) {
   const envelope = pack(payload, { signingKey: options.signingKey });
 
   return [
-    summary(payload, options.stats),
+    summary(payload),
     "",
     "<Conversation>",
     // Base64 and a handful of fixed keys: nothing in either block can close its element.

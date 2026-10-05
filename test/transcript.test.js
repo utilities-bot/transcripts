@@ -119,21 +119,21 @@ describe("the file", () => {
    * head is written out — the loader clears the text and sets up the page.
    */
   it("is three plain blocks: the server, the people, and the transcript", () => {
-    const html = buildHtml(collected().payload, { stats: { saved: 3, skipped: 1 } });
+    const html = buildHtml(collected().payload);
     const lines = html.split("\n");
 
     assert.deepEqual(lines.slice(0, 4), [
       "<Transcript>",
-      "    Server    Utilities Support (1374147741403320350)",
-      "    Channel   #ticket-0007 (1489260905819541635)",
+      "    Server       Utilities Support (1374147741403320350)",
+      "    Channel      #ticket-0007 (1489260905819541635)",
       lines[3],
     ]);
-    assert.match(lines[3], /^    Created   \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
-    assert.deepEqual(lines.slice(4, 16), [
-      "    Messages  13 saved",
-      "    Images    3 saved, 1 skipped",
-      "    Files     0 saved",
-      "    Skipped   over the file size limit, or no longer on Discord",
+    assert.match(lines[3], /^    Created      \d{4}-\d\d-\d\d \d\d:\d\d UTC$/);
+    assert.deepEqual(lines.slice(4, 15), [
+      "    Messages     13 saved",
+      // Nothing was downloaded for this one, so every upload reads as skipped.
+      "    Attachments  0 saved, 7 skipped",
+      "    Skipped      over the file size limit, or no longer on Discord",
       "",
       "<Participants>",
       "    7  mira.k     497562304498368513",
@@ -141,17 +141,36 @@ describe("the file", () => {
       "    3  jonas      612345678901234567",
       "",
       "<Conversation>",
-      lines[15],
+      lines[14],
     ]);
-    assert.equal(lines.length, 17, "nothing else: the last block is one line, then the file ends");
+    assert.equal(lines.length, 16, "nothing else: the last block is one line, then the file ends");
     assert.equal(html.startsWith("<Transcript>"), true);
-    assert.match(lines[15], /d\.body\.textContent="";/, "the loader clears the plain text before the transcript is drawn");
+    assert.match(lines[14], /d\.body\.textContent="";/, "the loader clears the plain text before the transcript is drawn");
+  });
+
+  /**
+   * "Attachments" is what people uploaded — pictures, voice messages, files —
+   * and nothing else. It was "Images", counted from everything saved, and a
+   * ticket of six plain messages said it had four: the avatars and an emoji.
+   */
+  it("counts what people uploaded, not the avatars and emoji saved to draw them", async () => {
+    const { payload, wanted } = collected();
+    await embedAssets(payload, wanted, { fetch: fakeFetch() });
+
+    assert.ok(Object.keys(payload.assets).length > 7, "avatars and emoji are saved as well");
+    assert.match(buildHtml(payload), /^    Attachments  6 saved, 1 skipped$/m);
   });
 
   it("says nothing about skipping when nothing was skipped", () => {
-    const html = buildHtml(collected().payload, { stats: { saved: 10, skipped: 0 } });
+    const { payload } = collected();
+    for (const message of payload.messages) {
+      for (const file of [...(message.attachments ?? []), ...(message.forwarded?.attachments ?? [])]) {
+        payload.assets[file.url] = "data:application/octet-stream;base64,AAAA";
+      }
+    }
+    const html = buildHtml(payload);
 
-    assert.match(html, /^    Images    10 saved\n    Files     0 saved\n\n<Participants>$/m);
+    assert.match(html, /^    Attachments  7 saved\n\n<Participants>$/m);
     assert.equal(html.split("<Conversation>")[0].includes("kipped"), false);
   });
 
@@ -163,7 +182,7 @@ describe("the file", () => {
     const head = buildHtml(payload).split("<Conversation>")[0];
 
     assert.equal(/<script|<img/i.test(head), false);
-    assert.match(head, /Server    &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+    assert.match(head, /Server       &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   });
 
   it("is reported modified when its data is edited", () => {
@@ -575,7 +594,7 @@ describe("the viewer", () => {
 
   /**
    * The details list is a layout that was written out, row for row. It is
-   * these eight, in this order, and nothing that was not asked for.
+   * these seven, in this order, and nothing that was not asked for.
    */
   it("lists the details exactly as laid out", async () => {
     const { payload, wanted } = collected();
@@ -585,18 +604,18 @@ describe("the viewer", () => {
     const list = /<dl class="tr-list">(.*?)<\/dl>/s.exec(html)[1];
     const rows = [...list.matchAll(/<dt>(.*?)<\/dt><dd>(.*?)<\/dd>/gs)].map(([, label, value]) => [label, value.replace(/<[^>]+>/g, "")]);
 
-    assert.deepEqual(rows.map(([label]) => label), ["Server", "Channel", "Messages", "Images", "Files", "Duration", "Created", "Transcript Generated"]);
-    assert.deepEqual(rows.slice(0, 5), [
+    assert.deepEqual(rows.map(([label]) => label), ["Server", "Channel", "Messages", "Attachments", "Duration", "Created", "Transcript Generated"]);
+    assert.deepEqual(rows.slice(0, 4), [
       ["Server", "Utilities Support 1374147741403320350"],
       ["Channel", "#ticket-0007 1489260905819541635"],
       ["Messages", "13"],
-      ["Images", "10"],
-      ["Files", "2"],
+      // Four pictures, a spreadsheet and a voice message. The video is gone from Discord.
+      ["Attachments", "6"],
     ]);
-    assert.match(rows[5][1], /^1d/);
+    assert.match(rows[4][1], /^1d/);
     // A date in the reader's own time, then the same moment in UTC.
-    assert.match(rows[6][1], /2026.* \(2026-10-05 14:02 UTC\)$/);
-    assert.match(rows[7][1], / \(\d{4}-\d\d-\d\d \d\d:\d\d UTC\)$/);
+    assert.match(rows[5][1], /2026.* \(2026-10-05 14:02 UTC\)$/);
+    assert.match(rows[6][1], / \(\d{4}-\d\d-\d\d \d\d:\d\d UTC\)$/);
     assert.match(html, /<b>#ticket-0007<\/b><span class="tr-top__line"><span>Utilities Support<\/span><span>13 messages<\/span><span>1d/);
     assert.match(list, /data-copy="1374147741403320350"/);
     assert.equal(/Exported|Time zone|First message|Last message|skipped/.test(list), false);
@@ -674,7 +693,7 @@ describe("createTranscript", () => {
     assert.equal(result.messageCount, 13);
     assert.equal(result.images.skipped, 0);
     assert.deepEqual(result.files, { saved: 2, skipped: 1, bytes: 41 + 16044 });
-    assert.match(result.html, /^    Images    10 saved\n    Files     2 saved, 1 skipped\n    Skipped   over the file size limit, or no longer on Discord$/m);
+    assert.match(result.html, /^    Attachments  6 saved, 1 skipped\n    Skipped      over the file size limit, or no longer on Discord$/m);
     assert.deepEqual(readTranscript(result.html).payload.stats, { images: { saved: 10, skipped: 0 }, files: { saved: 2, skipped: 1 } });
     assert.equal(result.participants[0].username, "mira.k");
     assert.equal(verifyTranscript(result.html), "intact");
@@ -711,7 +730,7 @@ describe("createTranscript", () => {
     assert.equal(result.messageCount + result.truncated, long.length);
     assert.equal(payload.messages.at(-1).id, long.at(-1).id, "the newest message is the one that is kept");
     assert.equal(payload.truncated, result.truncated);
-    assert.match(result.html, /^    Messages  \d+ saved, \d+ skipped$/m);
+    assert.match(result.html, /^    Messages     \d+ saved, \d+ skipped$/m);
     assert.match(viewer.render(payload, {}), /skipped to keep this file within its size limit/);
   });
 
