@@ -34,8 +34,10 @@ yours.
 
 Also in the viewer: right-click to copy text, IDs and message links, click a
 picture to enlarge it, click a reply to jump to it, and a layout that works on
-a phone. The Details panel counts the attachments people uploaded, and long
-transcripts only draw the messages on screen, so they open quickly.
+a phone. Right-click a picture to copy it, save it, or copy its address on
+Discord's CDN (the short link, not the copy saved in the file). The Details
+panel counts the attachments people uploaded, and long transcripts only draw
+the messages on screen, so they open quickly.
 
 ## Install
 

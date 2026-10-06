@@ -281,12 +281,13 @@ function tile(c, m, o){
   var s = src(c, m && m.url), cls = "pic" + (o.spoiler ? " is-spoiler" : "") + (o.cls ? " " + o.cls : "");
   if (!s) return '<span class="' + cls + ' is-lost">' + missing(o.name) + "</span>";
   var box = o.fill ? null : fit(m.w, m.h, o.maxW || 400, o.maxH || 300);
+  /* data-at is where the picture lives. A saved copy has no address of its own, so this is the
+     one its menu copies (see pictureItems). Only ever a web address: it is going to be pasted. */
+  var img = '<img src="' + esc(s) + '" alt="' + esc(o.alt || o.name || "") + '" loading="lazy" draggable="false" data-e="pic" data-n="' + esc(o.name || "Image") + '"' + (isHttp(m.url) ? ' data-at="' + esc(m.url) + '"' : "") + ">";
   if (o.link) return '<a class="' + cls + '" href="' + esc(o.link) + '" target="_blank" rel="noopener noreferrer"' + (box ? ' style="width:' + box.w + "px;aspect-ratio:" + box.w + "/" + box.h + '"' : "") + ">" +
-    '<img src="' + esc(s) + '" alt="' + esc(o.alt || o.name || "") + '" loading="lazy" draggable="false" data-e="pic" data-n="' + esc(o.name || "Image") + '">' +
-    (o.badge ? '<span class="pic__badge">' + esc(o.badge) + "</span>" : "") + "</a>";
+    img + (o.badge ? '<span class="pic__badge">' + esc(o.badge) + "</span>" : "") + "</a>";
   return '<span class="' + cls + '" data-zoom role="button" tabindex="0"' + (box ? ' style="width:' + box.w + "px;aspect-ratio:" + box.w + "/" + box.h + '"' : "") + ">" +
-    '<img src="' + esc(s) + '" alt="' + esc(o.alt || o.name || "") + '" loading="lazy" draggable="false" data-e="pic" data-n="' + esc(o.name || "Image") + '">' +
-    (o.badge ? '<span class="pic__badge">' + esc(o.badge) + "</span>" : "") +
+    img + (o.badge ? '<span class="pic__badge">' + esc(o.badge) + "</span>" : "") +
     (o.spoiler ? '<span class="pic__veil">SPOILER</span>' : "") + "</span>";
 }
 function gallery(c, items){
@@ -755,28 +756,72 @@ function wire(el, c){
     var jump = t.closest("[data-jump]");
     if (jump) { jumpTo(jump.getAttribute("data-jump")); return true; }
     var pic = t.closest("[data-zoom]");
-    if (pic && zoom) { var im = pic.querySelector("img"); if (im) { zoom.querySelector("img").src = im.src; zoom.hidden = false; } return true; }
+    if (pic && zoom) { var im = pic.querySelector("img"); if (im) { zoom.querySelector("img").src = im.src; enlarged = im; zoom.hidden = false; } return true; }
     return false;
   }
   el.addEventListener("click", function(e){
     var t = e.target;
-    if (zoom && !zoom.hidden && t.closest("#trZoom")) { close(); return; }
+    /* over an enlarged picture, the first click puts its menu away and the next one the picture */
+    if (zoom && !zoom.hidden && t.closest("#trZoom")) { if (menu && !menu.hidden) menu.hidden = true; else close(); return; }
     var item = t.closest("#trMenu button");
     if (item) { var it = menu._items[+item.getAttribute("data-i")]; menu.hidden = true; if (it) it[1](); return; }
+    if (t.closest("#trMenu")) { menu.hidden = true; return; }
     var cp = t.closest("[data-copy]");
     if (cp) { copy(cp.getAttribute("data-copy"), "Copied ID"); return; }
     if (t.closest("#trPop")) return;
     if (t.closest("a") || t.closest("#trFindBox")) { close(); if (t.closest("a[download]")) say("Downloading"); return; }
     if (!act(t, e)) close();
   });
-  /* Right-click: the things worth copying. A link, a picture's own menu or selected text keeps
-     the browser's menu, and so does anything while Shift is held. */
+  /* A picture's own menu. One saved in the file is drawn from that copy, and a copy has no
+     address: asked for one, a browser hands over the picture itself, written out as a page of
+     letters. So this stands in for the browser's menu, and gives the address Discord gave the
+     picture. That address opens in a browser for about a day; pasted into Discord it is renewed
+     for as long as Discord still has the picture.
+     A picture that was not saved is drawn from its address already, so enlarged it keeps the
+     browser's menu, where everything is then right. */
+  var enlarged = null;
+  function copyPicture(im){
+    var no = function(){ say("Couldn't copy"); };
+    try {
+      var cv = document.createElement("canvas");
+      cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+      cv.getContext("2d").drawImage(im, 0, 0);
+      /* Handed over as a promise: a clipboard may only be written while the click is still
+         being answered, and a canvas gives up its picture later than that. */
+      var png = new Promise(function(ok, bad){ cv.toBlob(function(b){ if (b) ok(b); else bad(new Error("no picture")); }, "image/png"); });
+      navigator.clipboard.write([new ClipboardItem({ "image/png": png })]).then(function(){ say("Copied image"); }, no);
+    } catch (e) { no(); }
+  }
+  function savePicture(im){
+    var data = im.getAttribute("src"), kind = (/^data:image\/([a-z]+)/.exec(data) || [])[1] || "png", a = document.createElement("a");
+    /* named after the picture, with the ending of what was saved: a .png is often kept as a .webp */
+    a.download = (im.getAttribute("data-n") || "image").replace(/\.(png|jpe?g|gif|webp|avif)$/i, "") + "." + (kind === "jpeg" ? "jpg" : kind);
+    a.href = data;
+    /* outside the transcript, so the click it is given is not taken for one on the page */
+    document.body.appendChild(a); a.click(); a.remove();
+    say("Downloading");
+  }
+  function pictureItems(im, big){
+    var saved = isPicture(im.getAttribute("src")), at = im.getAttribute("data-at"), items = [];
+    if (big && !saved) return items;
+    if (saved && root.ClipboardItem && root.navigator && navigator.clipboard && navigator.clipboard.write) items.push(["Copy Image", function(){ copyPicture(im); }]);
+    if (saved) items.push(["Save Image", function(){ savePicture(im); }]);
+    if (at) items.push(["Copy Image Address", function(){ copy(at, "Copied address"); }]);
+    return items;
+  }
+  /* Right-click: the things worth copying. A link, an input or selected text keeps the browser's
+     menu, and so does anything while Shift is held. */
   el.addEventListener("contextmenu", function(e){
     var t = e.target, sel = root.getSelection ? String(root.getSelection()) : "";
-    if (e.shiftKey || sel || t.closest("a, input, #trZoom")) return;
-    /* On a person: only what is about that person. Anywhere else in a message: only what is about
-       the message. Never both at once. */
-    var who = t.closest("[data-user]"), msg = who ? null : t.closest("[data-mid]"), items = [];
+    if (e.shiftKey || sel) return;
+    /* On a picture: only what is about the picture, enlarged or where it sits in a message.
+       On a person: only what is about that person. Anywhere else in a message: only what is
+       about the message. Never two at once. */
+    var big = t.closest("#trZoom"), box = big ? null : t.closest(".pic"), im = big ? enlarged : box && box.querySelector('img[data-e="pic"]');
+    var items = im ? pictureItems(im, !!big) : [];
+    if (items.length) { e.preventDefault(); openMenu(items, e.clientX, e.clientY); return; }
+    if (t.closest("a, input, #trZoom")) return;
+    var who = t.closest("[data-user]"), msg = who ? null : t.closest("[data-mid]");
     if (who) {
       var key = who.getAttribute("data-user"), u = c.users[key];
       if (u) {

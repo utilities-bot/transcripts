@@ -261,10 +261,11 @@ a.pic{cursor:pointer}
 .tr-pop__id code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font:500 12px/1.2 Consolas,Menlo,Monaco,monospace}
 .tr-pop__id em{color:var(--muted);font-style:normal}
 .tr-pop__id:hover em{color:var(--head)}
-.tr-menu{position:fixed;z-index:16;min-width:188px;padding:6px;border-radius:8px;background:#393a41;border:1px solid var(--edge);box-shadow:0 8px 24px rgba(0,0,0,.5)}
+/* the menu and the note sit above an enlarged picture (20): a picture has a menu of its own */
+.tr-menu{position:fixed;z-index:21;min-width:188px;padding:6px;border-radius:8px;background:#393a41;border:1px solid var(--edge);box-shadow:0 8px 24px rgba(0,0,0,.5)}
 .tr-menu button{display:block;width:100%;padding:6px 8px;border:0;border-radius:4px;background:none;color:var(--text);font-size:13px;font-weight:500;line-height:18px;font-family:inherit;text-align:left;cursor:pointer}
 .tr-menu button:hover,.tr-menu button:focus-visible{background:var(--blurple);color:#fff;outline:0}
-.tr-toast{position:fixed;z-index:17;left:50%;bottom:24px;transform:translateX(-50%);padding:8px 14px;border-radius:8px;background:#248046;color:#fff;font-size:14px;font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.tr-toast{position:fixed;z-index:22;left:50%;bottom:24px;transform:translateX(-50%);padding:8px 14px;border-radius:8px;background:#248046;color:#fff;font-size:14px;font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 
 /* ---- embeds */
 .embed{--bar:#4e4f57;display:block;max-width:520px;margin-top:4px;padding:8px 16px 16px 12px;border-radius:4px;border:1px solid var(--edge);border-left:4px solid var(--bar);background:var(--bg-2)}

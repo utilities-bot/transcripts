@@ -626,8 +626,57 @@ describe("the viewer", () => {
     await embedAssets(payload, wanted, { fetch: fakeFetch() });
     const html = viewer.render(payload, {});
 
-    assert.equal(html.includes("checkout-error.png?ex="), false, "the expiring link is not what is drawn");
+    assert.equal(/src="[^"]*checkout-error\.png/.test(html), false, "the expiring link is not what is drawn");
     assert.match(html, /src="data:image\/png;base64,/);
+  });
+
+  /**
+   * A saved copy has no address. Asked for one, a browser hands over the picture itself,
+   * written out as a page of letters. So the address Discord gave the picture rides beside
+   * it, for the picture's own menu to copy.
+   */
+  it("keeps a saved picture's address beside it, for its menu to copy", async () => {
+    const { payload, wanted } = collected();
+    await embedAssets(payload, wanted, { fetch: fakeFetch() });
+    const html = viewer.render(payload, {});
+
+    assert.match(
+      html,
+      /<img src="data:image\/png;base64,[^"]+"[^>]* data-at="https:\/\/cdn\.discordapp\.com\/attachments\/1\/10\/checkout-error\.png\?ex=1&amp;is=2&amp;hm=3"/,
+    );
+  });
+
+  /** What the menu copies is pasted somewhere: only ever a web address, whatever the file says. */
+  it("gives a picture no address when the one it came with is not a web address", () => {
+    const pixel = "data:image/png;base64,iVBORw0KGgo=";
+    const html = viewer.render(
+      {
+        guild: { name: "g" },
+        channel: { name: "c" },
+        users: { 1: { id: "1", name: "one" } },
+        roles: {},
+        channels: {},
+        assets: { "javascript:alert(1)": pixel, "https://cdn.discordapp.com/attachments/1/2/ok.png": pixel },
+        messages: [
+          {
+            id: "1",
+            author: "1",
+            ts: 1,
+            attachments: [
+              { name: "bad.png", kind: "image", url: "javascript:alert(1)" },
+              { name: "ok.png", kind: "image", url: "https://cdn.discordapp.com/attachments/1/2/ok.png" },
+            ],
+          },
+        ],
+      },
+      {},
+    );
+
+    assert.equal((html.match(/data-e="pic"/g) ?? []).length, 2, "both are drawn from their saved copies");
+    assert.deepEqual(
+      [...html.matchAll(/data-at="([^"]*)"/g)].map(([, at]) => at),
+      ["https://cdn.discordapp.com/attachments/1/2/ok.png"],
+    );
   });
 
   /** Everything in a message is somebody else's text. None of it may become markup. */
